@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Based Knowledge Retrieval Platform</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<!-- ========= HEADER ========= -->
+<header class="site-header">
+    <div class="header-inner">
+        <div class="header-text">
+            <h1 class="site-title">AI-Based Knowledge Retrieval Platform</h1>
+            <p class="site-subtitle">Retrieval-Augmented Knowledge Assistant</p>
+        </div>
+        <div class="header-status" id="health-badge">
+            <span class="badge badge-ready">System Ready</span>
+        </div>
+    </div>
+</header>
+
+<!-- ========= MAIN LAYOUT ========= -->
+<main class="app-layout">
+
+    <!-- ===== LEFT PANEL: Knowledge Base ===== -->
+    <aside class="left-panel">
+        <div class="panel-card">
+            <div class="panel-header">
+                <h2 class="panel-title">Knowledge Base</h2>
+                <span id="chunk-count-badge" class="badge badge-info" style="display:none;"></span>
+            </div>
+
+            <!-- Upload Area -->
+            <div id="drop-zone" class="drop-zone">
+                <div class="drop-zone-inner">
+                    <div class="drop-icon">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                    </div>
+                    <p class="drop-text">Drag and drop a file here</p>
+                    <p class="drop-subtext">or</p>
+                    <label class="btn btn-primary" for="file-input">Choose File</label>
+                    <input type="file" id="file-input" accept=".pdf,.docx,.txt,.csv" style="display:none;">
+                </div>
+            </div>
+
+            <!-- Supported Formats -->
+            <div class="format-badges">
+                <span class="format-badge">PDF</span>
+                <span class="format-badge">DOCX</span>
+                <span class="format-badge">TXT</span>
+                <span class="format-badge">CSV</span>
+            </div>
+
+            <!-- Upload Progress -->
+            <div id="upload-progress-area" style="display:none;">
+                <div class="progress-label" id="upload-status-label">Uploading...</div>
+                <div class="progress-bar-track">
+                    <div class="progress-bar-fill" id="upload-progress-bar"></div>
+                </div>
+            </div>
+
+            <!-- Error Message -->
+            <div id="upload-error" class="alert alert-error" style="display:none;"></div>
+
+            <!-- Indexed Documents -->
+            <div class="doc-list-header">
+                <h3 class="section-label">Indexed Documents</h3>
+                <button class="btn-link" id="refresh-docs-btn" title="Refresh">Refresh</button>
+            </div>
+            <div id="documents-list" class="documents-list">
+                <p class="empty-state">No documents indexed yet.</p>
+            </div>
+
+            <!-- Sample Docs -->
+            <div style="margin-top: 1.2rem;">
+                <h3 class="section-label">Sample Documents</h3>
+                <p class="hint-text">Pre-built demo data for instant demonstration:</p>
+                <div id="sample-docs-list" class="sample-docs-grid"></div>
+            </div>
+
+            <!-- Reset -->
+            <div style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+                <button class="btn btn-danger-outline" id="reset-btn">Clear Knowledge Base</button>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ===== RIGHT PANEL: Query & Results ===== -->
+    <section class="right-panel">
+
+        <!-- Query Input -->
+        <div class="panel-card">
+            <h2 class="panel-title">Ask a Question</h2>
+            <p class="panel-subtitle">What would you like to know from your uploaded documents?</p>
+            <div class="query-input-group">
+                <textarea
+                    id="query-input"
+                    class="query-textarea"
+                    rows="3"
+                    placeholder="e.g. What is virtual memory? How does paging work? (or click 🎤 to speak)"></textarea>
+                <div class="query-action-row">
+                    <button class="btn btn-outline btn-icon" id="mic-btn" title="Click to speak your question using Web Speech API">
+                        <span id="mic-icon">🎤</span> <span id="mic-label">Voice Input</span>
+                    </button>
+                    <button class="btn btn-primary btn-ask" id="ask-btn">Ask Question</button>
+                </div>
+            </div>
+            <div id="query-error" class="alert alert-error" style="display:none;"></div>
+        </div>
+
+        <!-- Query Status -->
+        <div id="query-status-area" style="display:none;">
+            <div class="panel-card status-card">
+                <div class="pipeline-steps" id="pipeline-steps"></div>
+            </div>
+        </div>
+
+        <!-- Answer Card -->
+        <div id="answer-area" style="display:none;">
+            <div class="panel-card answer-card">
+                <div class="answer-header">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <h2 class="panel-title" style="margin: 0;">Answer</h2>
+                        <button class="btn btn-outline btn-sm" id="speak-btn" title="Read answer aloud using Web Speech API">
+                            🔊 Read Aloud
+                        </button>
+                    </div>
+                    <span id="confidence-badge" class="badge"></span>
+                </div>
+                <div id="answer-text" class="answer-text"></div>
+            </div>
+        </div>
+
+
+        <!-- Sources Section -->
+        <div id="sources-area" style="display:none;">
+            <div class="panel-card">
+                <h2 class="panel-title">Sources Used</h2>
+                <p class="hint-text">Retrieved document sections that informed this answer. Click to expand chunk.</p>
+                <div id="sources-list" class="sources-list"></div>
+            </div>
+        </div>
+
+        <!-- Retrieval Details (Explainability Mode) -->
+        <div id="debug-area" style="display:none;">
+            <div class="panel-card debug-card">
+                <button class="debug-toggle-btn" id="debug-toggle-btn">
+                    <span class="toggle-icon" id="debug-toggle-icon">+</span>
+                    Retrieval Details (Explainability Mode)
+                </button>
+                <div id="debug-content" class="debug-content" style="display:none;">
+                    <p class="hint-text" style="margin-bottom:1rem;">
+                        This panel shows the exact RAG pipeline execution — demonstrating that real retrieval and generation are occurring.
+                    </p>
+                    <div class="pipeline-diagram">
+
+                        <div class="pipeline-step-block">
+                            <div class="step-label">1. User Query</div>
+                            <div class="step-value" id="dbg-query"></div>
+                        </div>
+                        <div class="pipeline-arrow">&#8595;</div>
+
+                        <div class="pipeline-step-block">
+                            <div class="step-label">2. Query Embedding Generated</div>
+                            <div class="step-value" id="dbg-embedding"></div>
+                        </div>
+                        <div class="pipeline-arrow">&#8595;</div>
+
+                        <div class="pipeline-step-block">
+                            <div class="step-label">3. All Retrieved Chunks (before threshold filter)</div>
+                            <div class="step-value" id="dbg-all-chunks"></div>
+                        </div>
+                        <div class="pipeline-arrow">&#8595;</div>
+
+                        <div class="pipeline-step-block">
+                            <div class="step-label">4. Similarity Scores</div>
+                            <div class="step-value" id="dbg-scores"></div>
+                        </div>
+                        <div class="pipeline-arrow">&#8595;</div>
+
+                        <div class="pipeline-step-block">
+                            <div class="step-label">5. Selected Context (chunks above threshold)</div>
+                            <div class="step-value" id="dbg-selected"></div>
+                        </div>
+                        <div class="pipeline-arrow">&#8595;</div>
+
+                        <div class="pipeline-step-block">
+                            <div class="step-label">6. Generator Mode</div>
+                            <div class="step-value" id="dbg-generator"></div>
+                        </div>
+                        <div class="pipeline-arrow">&#8595;</div>
+
+                        <div class="pipeline-step-block step-block-final">
+                            <div class="step-label">7. Final Answer</div>
+                            <div class="step-value" id="dbg-final-answer"></div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </section>
+</main>
+
+<!-- ========= FOOTER ========= -->
+<footer class="site-footer">
+    <p>AI-Based Knowledge Retrieval Platform &mdash; Milestone 1 &mdash; Virtual Internship Project</p>
+    <p class="footer-tech">Built with Flask &middot; FAISS &middot; Sentence Transformers &middot; Python</p>
+</footer>
+
+<script src="/static/script.js"></script>
+</body>
+</html>

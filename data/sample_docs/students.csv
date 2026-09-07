@@ -1,0 +1,16 @@
+RollNo,Name,Department,CGPA,Year,Project_Domain,Status
+CS001,Ravi Kumar,CSE,8.7,3rd,Machine Learning,Active
+CS002,Priya Sharma,CSE,9.1,3rd,Web Development,Active
+CS003,Arjun Nair,CSE,7.8,4th,Data Science,Active
+EC001,Sneha Patel,ECE,8.3,3rd,Embedded Systems,Active
+EC002,Mohammed Ali,ECE,7.5,4th,Signal Processing,Completed
+IT001,Ananya Singh,IT,8.9,3rd,Cybersecurity,Active
+IT002,Rahul Gupta,IT,7.2,2nd,Cloud Computing,Active
+ME001,Divya Menon,MECH,6.8,4th,Robotics,Completed
+ME002,Karthik Iyer,MECH,7.9,3rd,IoT Systems,Active
+CS004,Lavanya Bose,CSE,9.4,4th,Natural Language Processing,Active
+CS005,Vikram Reddy,CSE,8.1,2nd,Computer Vision,Active
+IT003,Meera Joshi,IT,8.6,3rd,Blockchain Technology,Active
+EC003,Suresh Pillai,ECE,7.1,4th,VLSI Design,Completed
+CS006,Pooja Verma,CSE,9.0,3rd,Deep Learning,Active
+IT004,Arun Krishnan,IT,7.8,4th,DevOps and CI/CD,Completed

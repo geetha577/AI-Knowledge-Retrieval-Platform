@@ -1,0 +1,34 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Environment configuration
+.env
+
+# Uploaded runtime data & index files (preserve directory structures)
+data/uploads/*
+!data/uploads/.gitkeep
+data/vector_store/*
+!data/vector_store/.gitkeep
+
+# Temporary diagnostics, logs, and scratch scripts
+diagnose.py
+reindex_missing.py
+test_retrieval.py
+*.log
+*diag*.txt
+*test_output*.txt
+*rank_out*.txt
+
+# Operating System files
+.DS_Store
+Thumbs.db
+

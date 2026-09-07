@@ -1,0 +1,84 @@
+INTRODUCTION TO CYBERSECURITY
+==============================
+
+Cybersecurity refers to the practice of protecting systems, networks, and programs from digital attacks. These cyberattacks are usually aimed at accessing, changing, or destroying sensitive information, extorting money from users, or interrupting normal business processes.
+
+---
+
+CHAPTER 1: CRYPTOGRAPHY FUNDAMENTALS
+--------------------------------------
+
+Cryptography is the practice and study of techniques for secure communication in the presence of adversarial behavior. It is the foundation of data security in digital systems.
+
+Symmetric Key Cryptography:
+In symmetric encryption, the same key is used for both encryption and decryption. Examples include AES (Advanced Encryption Standard) and DES (Data Encryption Standard). Symmetric encryption is fast and efficient, making it suitable for encrypting large amounts of data. The main challenge is securely distributing the shared key between communicating parties.
+
+Asymmetric Key Cryptography (Public Key Cryptography):
+Asymmetric encryption uses a pair of mathematically related keys: a public key for encryption and a private key for decryption. RSA and ECC (Elliptic Curve Cryptography) are common asymmetric algorithms. Public key cryptography solves the key distribution problem: anyone can encrypt a message using a public key, but only the holder of the corresponding private key can decrypt it. This is the basis for HTTPS, digital signatures, and certificate authorities.
+
+Hashing:
+A hash function takes input data and produces a fixed-size output (hash or digest). Hashing is one-way: you cannot derive the original data from a hash. SHA-256 is a widely used cryptographic hash function. Hashing is used for password storage, data integrity verification, and digital signatures.
+
+---
+
+CHAPTER 2: NETWORK SECURITY
+-----------------------------
+
+Network security involves policies and practices to prevent unauthorized access, misuse, modification, or denial of network resources.
+
+Firewalls:
+A firewall is a network security system that monitors and controls incoming and outgoing network traffic based on predetermined security rules. Firewalls can be hardware-based, software-based, or cloud-based. A packet-filtering firewall inspects individual packets and allows or denies them based on rules. A stateful firewall tracks the state of active connections and makes decisions based on the context of traffic, not just individual packets.
+
+Intrusion Detection Systems (IDS) and Intrusion Prevention Systems (IPS):
+An IDS monitors network traffic for suspicious activity and issues alerts when potential attacks are detected. An IPS actively blocks identified threats. Together, IDS/IPS systems form a critical layer of defense in enterprise networks.
+
+Virtual Private Networks (VPN):
+A VPN extends a private network across a public network, enabling users to send and receive data as if their devices were directly connected to the private network. VPNs use encryption to protect data in transit. Common VPN protocols include OpenVPN, WireGuard, and IPSec.
+
+---
+
+CHAPTER 3: ZERO TRUST ARCHITECTURE
+-------------------------------------
+
+Zero Trust is a security model based on the principle of "never trust, always verify." Unlike traditional perimeter-based security models that trust everything inside the network, Zero Trust assumes that threats can exist both outside and inside the network perimeter.
+
+Core Principles of Zero Trust:
+1. Verify explicitly: Always authenticate and authorize based on all available data points including identity, location, device health, and data classification.
+2. Least privilege access: Limit user access with Just-In-Time and Just-Enough-Access, risk-based adaptive policies, and data protection.
+3. Assume breach: Minimize blast radius, segment access, verify end-to-end encryption, and use analytics to detect anomalies.
+
+Zero Trust Implementation:
+Implementing Zero Trust requires strong identity management (using Multi-Factor Authentication), microsegmentation of the network, continuous monitoring of user behavior, and encryption of data both in transit and at rest. Zero Trust is increasingly adopted by organizations to secure cloud-native applications and remote workforces.
+
+---
+
+CHAPTER 4: COMMON ATTACK VECTORS
+-----------------------------------
+
+Phishing:
+Phishing is a social engineering attack where attackers impersonate trusted entities to trick users into revealing credentials, financial information, or installing malware. Spear phishing targets specific individuals using personalized information.
+
+SQL Injection:
+SQL injection is a code injection technique used to attack data-driven applications by inserting malicious SQL statements into entry fields. This can allow attackers to read, modify, or delete database contents. Prevention involves parameterized queries and input validation.
+
+Man-in-the-Middle (MITM) Attack:
+In a MITM attack, the attacker secretly intercepts and possibly alters communications between two parties who believe they are communicating directly with each other. Using HTTPS and certificate pinning helps mitigate MITM attacks.
+
+Denial-of-Service (DoS) and Distributed Denial-of-Service (DDoS):
+DoS attacks aim to make a service unavailable by overwhelming it with traffic. DDoS attacks use multiple compromised systems to launch coordinated floods of traffic. Mitigation involves rate limiting, traffic filtering, and CDN-based protection.
+
+---
+
+CHAPTER 5: SECURITY BEST PRACTICES
+-------------------------------------
+
+1. Keep software and systems updated to patch known vulnerabilities.
+2. Use strong, unique passwords for every account and store them in a password manager.
+3. Enable Multi-Factor Authentication (MFA) wherever possible.
+4. Encrypt sensitive data both in transit (TLS/HTTPS) and at rest.
+5. Regularly back up critical data and test restoration procedures.
+6. Follow the Principle of Least Privilege: grant users only the access they need.
+7. Conduct regular security audits and penetration testing.
+8. Train employees in security awareness to recognize phishing and social engineering.
+9. Monitor systems with logging and intrusion detection tools.
+10. Develop and maintain an incident response plan.
