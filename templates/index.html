@@ -13,7 +13,7 @@
     <div class="header-inner">
         <div class="header-text">
             <h1 class="site-title">AI-Based Knowledge Retrieval Platform</h1>
-            <p class="site-subtitle">Retrieval-Augmented Knowledge Assistant</p>
+            <p class="site-subtitle">Multi-Agent Query Resolution &amp; Knowledge Retrieval Platform</p>
         </div>
         <div class="header-status" id="health-badge">
             <span class="badge badge-ready">System Ready</span>
@@ -103,11 +103,8 @@
                     id="query-input"
                     class="query-textarea"
                     rows="3"
-                    placeholder="e.g. What is virtual memory? How does paging work? (or click 🎤 to speak)"></textarea>
-                <div class="query-action-row">
-                    <button class="btn btn-outline btn-icon" id="mic-btn" title="Click to speak your question using Web Speech API">
-                        <span id="mic-icon">🎤</span> <span id="mic-label">Voice Input</span>
-                    </button>
+                    placeholder="e.g. What is virtual memory? How does paging work?"></textarea>
+                <div class="query-action-row" style="justify-content: flex-end;">
                     <button class="btn btn-primary btn-ask" id="ask-btn">Ask Question</button>
                 </div>
             </div>
@@ -125,13 +122,13 @@
         <div id="answer-area" style="display:none;">
             <div class="panel-card answer-card">
                 <div class="answer-header">
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <div>
                         <h2 class="panel-title" style="margin: 0;">Answer</h2>
-                        <button class="btn btn-outline btn-sm" id="speak-btn" title="Read answer aloud using Web Speech API">
-                            🔊 Read Aloud
-                        </button>
                     </div>
-                    <span id="confidence-badge" class="badge"></span>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span id="query-type-badge" class="badge" style="display:none;"></span>
+                        <span id="confidence-badge" class="badge"></span>
+                    </div>
                 </div>
                 <div id="answer-text" class="answer-text"></div>
             </div>
@@ -211,8 +208,8 @@
 
 <!-- ========= FOOTER ========= -->
 <footer class="site-footer">
-    <p>AI-Based Knowledge Retrieval Platform &mdash; Milestone 1 &mdash; Virtual Internship Project</p>
-    <p class="footer-tech">Built with Flask &middot; FAISS &middot; Sentence Transformers &middot; Python</p>
+    <p>AI-Based Knowledge Retrieval Platform &mdash; Milestone 2: Multi-Agent Query Resolution &mdash; Virtual Internship Project</p>
+    <p class="footer-tech">Built with Flask &middot; FAISS &middot; Sentence Transformers &middot; Multi-Agent Orchestrator &middot; Python</p>
 </footer>
 
 <script src="/static/script.js"></script>

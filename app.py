@@ -24,13 +24,16 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 VECTOR_STORE_DIR.mkdir(parents=True, exist_ok=True)
 SAMPLE_DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Import backend modules
 from backend.document_processor import DocumentProcessor, DocumentProcessingError
 from backend.chunker import DocumentChunker
 from backend.embeddings import EmbeddingEngine
 from backend.vector_store import VectorStore
 from backend.retriever import KnowledgeRetriever
 from backend.generator import ResponseGenerator
+from backend.query_understanding_agent import QueryUnderstandingAgent
+from backend.retrieval_agent import RetrievalAgent
+from backend.response_generation_agent import ResponseGenerationAgent
+from backend.orchestrator import MultiAgentOrchestrator
 
 # Create Flask application
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -57,6 +60,16 @@ retriever = KnowledgeRetriever(
 )
 generator = ResponseGenerator()
 
+# Milestone 2 Multi-Agent Architecture
+query_understanding_agent = QueryUnderstandingAgent()
+retrieval_agent = RetrievalAgent(retriever=retriever)
+response_generation_agent = ResponseGenerationAgent(generator=generator)
+orchestrator = MultiAgentOrchestrator(
+    query_understanding_agent=query_understanding_agent,
+    retrieval_agent=retrieval_agent,
+    response_generation_agent=response_generation_agent,
+)
+
 
 # ----------------------------------------------------------------------
 # Page Routes
@@ -77,11 +90,18 @@ def health_check():
     """System health check and vector database status."""
     return jsonify({
         "status": "healthy",
+        "milestone": "Milestone 2 - Multi-Agent Architecture",
         "total_documents": len(vector_store.get_indexed_documents()),
         "total_chunks": vector_store.total_chunks,
         "embedding_model": embedding_engine.model_name,
         "embedding_dimension": vector_store.dimension,
         "generator_mode": generator.provider,
+        "agents": [
+            "QueryUnderstandingAgent",
+            "RetrievalAgent",
+            "ResponseGenerationAgent",
+            "MultiAgentOrchestrator",
+        ],
     })
 
 
@@ -163,8 +183,9 @@ def upload_document():
 @app.route("/query", methods=["POST"])
 def query_knowledge_base():
     """
-    Accepts user question, retrieves top-k relevant chunks,
-    and generates a grounded answer with full source attribution.
+    Accepts user question, passes through Multi-Agent Orchestrator:
+    Query Understanding Agent -> Retrieval Agent -> Response Generation Agent,
+    and returns answer, confidence, sources, query_type, and pipeline stages.
     """
     data = request.get_json(silent=True) or {}
     question = data.get("question") or data.get("query") or ""
@@ -178,33 +199,53 @@ def query_knowledge_base():
             "error": "The knowledge base is currently empty. Please upload at least one document first."
         }), 400
 
-    print(f"\n[QUERY] Processing question: '{question}'")
+    print(f"\n[QUERY] Processing question via Multi-Agent Orchestrator: '{question}'")
 
     try:
-        # Step 1: Semantic similarity search via retriever
-        retrieval_data = retriever.retrieve(question)
+        # Step 1: Execute multi-agent orchestration pipeline
+        result = orchestrator.process_query(question)
 
-        # Step 2: Grounded answer generation
-        print("[GENERATION] Passing retrieved context to generator...")
-        response = generator.generate_response(question, retrieval_data)
+        # Step 2: Format explainability details for UI
+        debug_payload = result.get("debug_details", {})
+        gen_debug = debug_payload.get("generation_debug", {})
 
-        # Enrich debug details for code walkthrough explainability mode
-        debug_payload = {
+        # Extract candidates for explainability panel
+        retrieved_results = debug_payload.get("retrieved_results", [])
+        all_chunks = []
+        for r in retrieved_results:
+            all_chunks.append({
+                "chunk_id": r.get("chunk_id", ""),
+                "document_name": r.get("document", ""),
+                "text": r.get("content", ""),
+                "similarity_score": r.get("score", 0.0),
+                "relevance": r.get("relevance", "Medium"),
+            })
+
+        debug_payload.update({
             "query": question,
-            "query_embedding_shape": retrieval_data["query_embedding_shape"],
-            "top_similarity_score": retrieval_data["top_score"],
-            "confidence": response.confidence,
-            "generator_mode": response.debug_details.get("mode"),
-            "retrieved_chunks_count": len(retrieval_data["all_retrieved"]),
-            "selected_chunks_count": len(retrieval_data["relevant_results"]),
-            "prompt_used": response.debug_details.get("prompt_used"),
-            "all_retrieved_chunks": [r.to_dict() for r in retrieval_data["all_retrieved"]],
-        }
+            "query_type": result.get("query_type"),
+            "classification_confidence": result.get("classification_confidence"),
+            "route": result.get("route"),
+            "confidence": result.get("confidence"),
+            "generator_mode": gen_debug.get("mode") or generator.provider,
+            "top_similarity_score": debug_payload.get("top_similarity_score", 0.0),
+            "retrieved_chunks_count": len(retrieved_results),
+            "selected_chunks_count": len(result.get("sources", [])),
+            "all_retrieved_chunks": all_chunks,
+            "query_embedding_shape": [1, embedding_engine.dimension],
+            "prompt_used": gen_debug.get("prompt_used"),
+            "pipeline_stages": result.get("pipeline_stages", []),
+        })
 
         return jsonify({
-            "answer": response.answer,
-            "confidence": response.confidence,
-            "sources": response.sources,
+            "answer": result["answer"],
+            "confidence": result["confidence"],
+            "sources": result["sources"],
+            "query_type": result["query_type"],
+            "classification_confidence": result["classification_confidence"],
+            "route": result["route"],
+            "status": result["status"],
+            "pipeline_stages": result["pipeline_stages"],
             "debug_details": debug_payload,
         }), 200
 

@@ -2,10 +2,13 @@
 
 ## Overview
 
-This is a fully functional Retrieval-Augmented Generation (RAG) platform built as part of a Virtual Internship
-Milestone 1 project. The application allows users to upload knowledge documents in multiple formats (PDF, DOCX, TXT,
-CSV), indexes them into a persistent vector database, and answers natural-language questions by retrieving the most
-relevant document sections and generating grounded, factually accurate answers.
+This is a fully functional **Retrieval-Augmented Generation (RAG)** platform built as part of a Virtual Internship
+project spanning **Milestone 1 (Knowledge Retrieval)** and **Milestone 2 (Multi-Agent Query Resolution)**.
+
+The application allows users to upload knowledge documents in multiple formats (PDF, DOCX, TXT, CSV), indexes them
+into a persistent vector database, and answers natural-language questions through a **three-agent orchestration
+pipeline** that classifies the query, retrieves the most relevant document sections, and generates grounded,
+factually accurate answers — all without hallucination.
 
 ---
 
@@ -49,6 +52,13 @@ This application implements the RAG (Retrieval-Augmented Generation) pattern:
 - Persistent vector index survives server restarts
 - Reset knowledge base functionality
 - Pre-built sample documents for instant demonstration
+- **[M2] Query Understanding Agent** — classifies every query as `factual`, `procedural`, `comparative`, or `ambiguous`
+- **[M2] Retrieval Agent** — wraps semantic search; returns standardized M2 schema with confidence metadata
+- **[M2] Response Generation Agent** — groundedness check before synthesis; rejects low-confidence noise
+- **[M2] Multi-Agent Orchestrator** — coordinates all three agents; returns `pipeline_stages` for full traceability
+- **[M2] Query-type badge** — UI badge shows classification + confidence % on every answer
+- **[M2] Ambiguous query handling** — clarification guidance instead of guessing
+
 
 ---
 
@@ -103,8 +113,6 @@ This application implements the RAG (Retrieval-Augmented Generation) pattern:
 |---|---|---|
 | **Web Framework** | Python 3.11, Flask | RESTful API endpoints and static file serving |
 | **Frontend UI** | HTML5, CSS3, Vanilla JS | Lightweight, zero-dependency responsive client |
-| **Speech-to-Text (STT)** | Web Speech API (`SpeechRecognition`) | Native browser-level voice input for queries |
-| **Text-to-Speech (TTS)** | Web Speech API (`SpeechSynthesis`) | Browser-native voice readout of grounded answers |
 | **Document Processing** | `pypdf`, `python-docx`, Python `csv` | Format-specific text extraction with page/row metadata |
 | **Chunking Engine** | Custom sliding-window (`backend/chunker.py`) | Sentence-aware chunking with overlap & provenance tagging |
 | **Dense Embeddings** | `sentence-transformers` (`all-MiniLM-L6-v2`) | 384-dim normalized dense vector embeddings |
@@ -228,14 +236,18 @@ knowledge-retrieval-platform/
 ├── create_sample_docs.py       # One-time script to generate demo documents
 │
 ├── backend/
-│   ├── __init__.py             # Exports all backend components
-│   ├── models.py               # DocumentChunk, RetrievalResult, QueryResponse
+│   ├── __init__.py             # Exports all backend components (M1 + M2)
+│   ├── models.py               # DocumentChunk, RetrievalResult, QueryResponse, AgentMessage
 │   ├── document_processor.py   # PDF/DOCX/TXT/CSV parsers + file validation
 │   ├── chunker.py              # Sliding window sentence-aware chunker
 │   ├── embeddings.py           # Sentence-Transformers embedding engine
 │   ├── vector_store.py         # FAISS index + disk persistence + search
-│   ├── retriever.py            # Semantic retrieval + threshold filtering
-│   └── generator.py            # Grounded answer generation (LLM + local fallback)
+│   ├── retriever.py            # [M1] Semantic retrieval + threshold filtering
+│   ├── generator.py            # [M1] Grounded answer generation (LLM + local fallback)
+│   ├── query_understanding_agent.py  # [M2] Classifies queries: factual/procedural/comparative/ambiguous
+│   ├── retrieval_agent.py      # [M2] Retrieval Agent wrapping KnowledgeRetriever
+│   ├── response_generation_agent.py  # [M2] Response Agent with groundedness validation
+│   └── orchestrator.py         # [M2] Multi-Agent Orchestrator coordinating all three agents
 │
 ├── data/
 │   ├── uploads/                # Saved uploaded documents
@@ -254,7 +266,8 @@ knowledge-retrieval-platform/
 │   └── script.js               # Frontend async controller
 │
 └── tests/
-    └── test_pipeline.py        # Unit + integration tests for all pipeline stages
+    ├── test_pipeline.py        # [M1] Unit + integration tests (39 tests)
+    └── test_multi_agent.py     # [M2] Multi-agent unit + integration tests (18 tests)
 ```
 
 ---
@@ -308,6 +321,7 @@ User sees: Answer + Sources + Confidence + Explainability Details
 
 ## Running Tests
 
+### Milestone 1 Tests (39 tests)
 ```powershell
 python -m unittest tests/test_pipeline.py -v
 ```
@@ -322,39 +336,124 @@ Tests cover:
 - Response generator grounding and rejection behavior
 - Flask API endpoints (/health, /documents, /query, /)
 
+### Milestone 2 Tests (18 tests)
+```powershell
+python -m unittest tests/test_multi_agent.py -v
+```
+
+Tests cover:
+- `QueryUnderstandingAgent`: factual, procedural, comparative, ambiguous classification
+- `RetrievalAgent`: success with metadata schema, no-results handling
+- `ResponseGenerationAgent`: ambiguous clarification, no-results rejection, grounded success
+- `MultiAgentOrchestrator`: ambiguous flow, factual flow, unavailable-information flow
+- Flask integration: health endpoint agents list, query_type badge in responses, pipeline_stages, clarification routing
+
+### Full Combined Suite (57 tests)
+```powershell
+python -m unittest discover -s tests
+```
+
 ---
 
-## Demo Scenarios
+## Milestone 2 — Multi-Agent Query Resolution
 
-### Demo 1 — Operating Systems (PDF)
-1. Load: `Operating_Systems.pdf` (via Sample Documents panel)
-2. Ask: `What is virtual memory?`
-3. Expected: Answer about virtual memory as a memory management technique, sources show page 4.
+### Architecture
 
-### Demo 2 — Structured Data (CSV)
-1. Load: `students.csv`
-2. Ask: `What is Ravi Kumar's CGPA and department?`
-3. Expected: Retrieves exact row, answer shows Name: Ravi Kumar | Department: CSE | CGPA: 8.7
+```
+User Query
+    │
+    ▼
+┌─────────────────────────────────────────────────────────┐
+│                  Multi-Agent Orchestrator                │
+│                    (orchestrator.py)                     │
+│                                                          │
+│  ┌─────────────────────┐                                 │
+│  │  Query Understanding │  Stage 1: Classify query       │
+│  │       Agent          │  → factual / procedural /      │
+│  │ (query_understanding │    comparative / ambiguous      │
+│  │    _agent.py)        │  → route: retrieval /          │
+│  └──────────┬──────────┘    clarification               │
+│             │                                            │
+│     (if route == retrieval)                              │
+│             │                                            │
+│  ┌──────────▼──────────┐                                 │
+│  │   Retrieval Agent    │  Stage 2: Semantic search      │
+│  │  (retrieval_agent.py)│  → top-k FAISS results         │
+│  │                      │  → confidence_label            │
+│  └──────────┬──────────┘                                 │
+│             │                                            │
+│  ┌──────────▼──────────┐                                 │
+│  │  Response Generation │  Stage 3: Groundedness check   │
+│  │       Agent          │  + synthesis or rejection      │
+│  │ (response_generation │  → answer + sources            │
+│  │    _agent.py)        │  → final confidence            │
+│  └─────────────────────┘                                 │
+└─────────────────────────────────────────────────────────┘
+    │
+    ▼
+ /query endpoint returns:
+  {answer, query_type, classification_confidence, route,
+   confidence, sources, status, pipeline_stages}
+```
 
-### Demo 3 — Artificial Intelligence (DOCX)
-1. Load: `Artificial_Intelligence.docx`
-2. Ask: `How does the attention mechanism work in transformers?`
-3. Expected: Answer from the transformer chapter, correct source attribution.
+### Query Classification Rules
 
-### Demo 4 — Out-of-Domain / Unknown Question
-1. With any documents loaded, ask: `How do I bake sourdough bread?`
-2. Expected: System clearly states the information is not available in the uploaded knowledge base. No hallucination.
+| Query Type | Signal Words / Patterns | Route |
+|---|---|---|
+| **factual** | `what is`, `who is`, `define`, `explain` | retrieval |
+| **procedural** | `how do`, `how to`, `steps to`, `guide` | retrieval |
+| **comparative** | `difference between`, `compare`, `vs`, `which is better` | retrieval |
+| **ambiguous** | Short (<4 tokens), vague pronouns, no clear subject | clarification |
 
-### Demo 5 — Persistence Test
-1. Upload or load any document.
-2. Stop the server (`Ctrl+C`).
-3. Restart: `python app.py`
-4. Ask the same question — answers should still work without re-uploading.
+### Agent Responsibilities
+
+| Agent | File | Responsibility |
+|---|---|---|
+| `QueryUnderstandingAgent` | `query_understanding_agent.py` | Classify + route every query |
+| `RetrievalAgent` | `retrieval_agent.py` | Semantic search + standardized M2 schema |
+| `ResponseGenerationAgent` | `response_generation_agent.py` | Groundedness check + grounded synthesis |
+| `MultiAgentOrchestrator` | `orchestrator.py` | Sequential coordination of all 3 agents |
+
+### Example Queries and Expected Behavior
+
+| Query | Type | Confidence | Behavior |
+|---|---|---|---|
+| `What is virtual memory?` | factual | High | Answers from OS textbook |
+| `How do I prevent phishing attacks?` | procedural | Medium | Step-by-step from Cybersecurity doc |
+| `What is the difference between RAM and ROM?` | comparative | Medium | Comparative answer from OS doc |
+| `Tell me about it.` | ambiguous | None | Clarification guidance message |
+| `What is the capital of France?` | factual | None | Rejection (not in knowledge base) |
+
+### Demo Scenarios (Milestone 2)
+
+#### Demo 6 — Factual Query with Type Badge
+1. Load `Artificial_Intelligence.docx`
+2. Ask: `What is machine learning?`
+3. Expected: Answer from AI doc, **[factual]** badge shown with classification confidence %
+
+#### Demo 7 — Procedural Query
+1. Load `Cybersecurity_Basics.txt`
+2. Ask: `How do I prevent phishing attacks?`
+3. Expected: Step-by-step answer, **[procedural]** badge shown, 3 pipeline stages visible
+
+#### Demo 8 — Comparative Query
+1. Load `Operating_Systems.pdf`
+2. Ask: `What is the difference between RAM and ROM?`
+3. Expected: Comparative answer, **[comparative]** badge shown in orange
+
+#### Demo 9 — Ambiguous Query (Clarification)
+1. With any documents loaded, ask: `Tell me about it.`
+2. Expected: **[ambiguous]** badge, clarification guidance message, no sources, Confidence: None
+
+#### Demo 10 — Out-of-Domain Rejection (M2 Groundedness Check)
+1. With any documents loaded, ask: `What is the capital of France?`
+2. Expected: Pipeline completes all 3 stages, Retrieval Agent returns no results, rejection message
 
 ---
 
 ## Code Walkthrough Order (For Evaluation)
 
+### Milestone 1 Core Pipeline
 1. **`app.py`** — Flask routes, RAG pipeline initialization, logging
 2. **`backend/document_processor.py`** — Format detection, text extraction, metadata
 3. **`backend/chunker.py`** — Sentence-aware sliding window chunking
@@ -364,16 +463,23 @@ Tests cover:
 7. **`backend/generator.py`** — Grounded prompt and LLM/fallback generation
 8. **`static/script.js`** — Async API communication and dynamic UI rendering
 
+### Milestone 2 Multi-Agent Layer
+9. **`backend/query_understanding_agent.py`** — Query classification logic (regex + vague-token detection)
+10. **`backend/retrieval_agent.py`** — Retrieval Agent adapting M1 retriever to M2 schema
+11. **`backend/response_generation_agent.py`** — Groundedness validation before synthesis
+12. **`backend/orchestrator.py`** — Sequential multi-agent orchestration + `pipeline_stages` logging
+13. **`tests/test_multi_agent.py`** — M2 unit tests for all four components
+
 ---
 
-## Future Scope — Milestone 2
+## Future Scope — Milestone 3
 
-Milestone 2 will extend this platform with a multi-agent orchestration system:
+Milestone 3 will extend this platform with:
 
-- **Query Understanding Agent** — Parses and reformulates user queries
-- **Retrieval Agent** — Manages semantic search across multiple knowledge domains
-- **Response Generation Agent** — Coordinates grounded generation with fact verification
-- **Orchestration Layer** — Coordinates agent interactions and task delegation
+- **Clarification Agent** — Interactive follow-up questions for ambiguous queries (already flagged in M2)
+- **Memory Agent** — Session-level conversation history and context carryover
+- **Multi-domain Routing** — Automatic knowledge domain detection and targeted retrieval
+- **Voice Interface** — Full end-to-end voice Q&A using Web Speech API (STT + TTS)
+- **Evaluation Dashboard** — Retrieval precision@k, answer faithfulness, and MRR metrics
 
-The modular architecture of Milestone 1 (separate files for each RAG concern) is designed specifically
-to support this extension.
+The modular agent architecture of Milestone 2 is designed specifically to support these extensions.

@@ -19,10 +19,6 @@ const uploadProgressBar  = document.getElementById("upload-progress-bar");
 
 const queryInput       = document.getElementById("query-input");
 const askBtn           = document.getElementById("ask-btn");
-const micBtn           = document.getElementById("mic-btn");
-const micIcon          = document.getElementById("mic-icon");
-const micLabel         = document.getElementById("mic-label");
-const speakBtn         = document.getElementById("speak-btn");
 const queryError       = document.getElementById("query-error");
 const queryStatusArea  = document.getElementById("query-status-area");
 const pipelineSteps    = document.getElementById("pipeline-steps");
@@ -31,6 +27,7 @@ const pipelineSteps    = document.getElementById("pipeline-steps");
 const answerArea       = document.getElementById("answer-area");
 const answerText       = document.getElementById("answer-text");
 const confidenceBadge  = document.getElementById("confidence-badge");
+const queryTypeBadge   = document.getElementById("query-type-badge");
 
 const sourcesArea      = document.getElementById("sources-area");
 const sourcesList      = document.getElementById("sources-list");
@@ -287,21 +284,19 @@ async function runQuery() {
     askBtn.disabled = true;
     askBtn.textContent = "Searching...";
 
-    // Show pipeline steps
+    // Show pipeline steps for Multi-Agent Orchestration
     showElement(queryStatusArea);
     renderPipelineSteps([
-        { id: "step-query",     label: "Received Query",          state: "done" },
-        { id: "step-embed",     label: "Generating Embedding",    state: "active" },
-        { id: "step-search",    label: "Semantic Search",         state: "pending" },
-        { id: "step-filter",    label: "Relevance Filtering",     state: "pending" },
-        { id: "step-generate",  label: "Generating Answer",       state: "pending" },
+        { id: "step-understanding", label: "Query Understanding Agent", state: "active" },
+        { id: "step-retrieval",     label: "Retrieval Agent",           state: "pending" },
+        { id: "step-generation",    label: "Response Generation Agent", state: "pending" },
     ]);
 
     try {
-        // Animate pipeline steps sequentially
-        await sleep(400);
-        updateStep("step-embed", "done");
-        updateStep("step-search", "active");
+        // Animate agent transitions sequentially
+        await sleep(250);
+        updateStep("step-understanding", "done");
+        updateStep("step-retrieval", "active");
 
         const response = await fetch("/query", {
             method: "POST",
@@ -310,22 +305,19 @@ async function runQuery() {
         });
         const data = await response.json();
 
-        updateStep("step-search", "done");
-        updateStep("step-filter", "active");
-        await sleep(300);
-        updateStep("step-filter", "done");
-        updateStep("step-generate", "active");
-        await sleep(300);
+        updateStep("step-retrieval", "done");
+        updateStep("step-generation", "active");
+        await sleep(200);
 
         if (!response.ok || data.error) {
             showError(queryError, data.error || "Query failed. Please try again.");
-            updateStep("step-generate", "error");
+            updateStep("step-generation", "error");
             askBtn.disabled = false;
             askBtn.textContent = "Ask Question";
             return;
         }
 
-        updateStep("step-generate", "done");
+        updateStep("step-generation", "done");
 
         // Render answer, sources, and debug panel
         renderAnswer(data);
@@ -367,13 +359,34 @@ function clearPipelineSteps() {
 // Section: Answer Rendering
 // ============================================================
 
-/** Renders the generated answer and confidence badge. */
+function capitalize(s) {
+    if (!s) return "";
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** Renders the generated answer, query type, and confidence badge. */
 function renderAnswer(data) {
     const confidence = data.confidence || "None";
     const badgeClass = confidenceBadgeClass(confidence);
 
     confidenceBadge.className = `badge ${badgeClass}`;
     confidenceBadge.textContent = `Confidence: ${confidence}`;
+
+    // Render Query Type badge
+    if (data.query_type && queryTypeBadge) {
+        const qType = data.query_type.toLowerCase();
+        let qBadgeClass = "badge-factual";
+        if (qType === "procedural") qBadgeClass = "badge-procedural";
+        else if (qType === "comparative") qBadgeClass = "badge-comparative";
+        else if (qType === "ambiguous") qBadgeClass = "badge-ambiguous";
+
+        queryTypeBadge.className = `badge ${qBadgeClass}`;
+        const confPercent = data.classification_confidence ? ` (${Math.round(data.classification_confidence * 100)}%)` : "";
+        queryTypeBadge.textContent = `Type: ${capitalize(data.query_type)}${confPercent}`;
+        showElement(queryTypeBadge);
+    } else if (queryTypeBadge) {
+        hideElement(queryTypeBadge);
+    }
 
     answerText.textContent = data.answer || "No answer returned.";
     showElement(answerArea);
@@ -469,8 +482,9 @@ function renderDebugPanel(debug, question, answer) {
     debugContent.style.display = "none";
     debugToggleIcon.textContent = "+";
 
-    // Step 1: Query
-    setDebugValue("dbg-query", question);
+    // Step 1: Query & Multi-Agent Classification
+    const qTypeStr = debug.query_type ? ` [Classified Type: ${debug.query_type.toUpperCase()}, Route: ${debug.route || 'retrieval'}]` : "";
+    setDebugValue("dbg-query", `${question}${qTypeStr}`);
 
     // Step 2: Embedding Shape
     const shape = debug.query_embedding_shape || [];
@@ -532,121 +546,6 @@ resetBtn.addEventListener("click", async () => {
         alert("Could not reset the knowledge base. Please try again.");
     }
 });
-
-// ============================================================
-// Section: Web Speech API Integration (STT & TTS)
-// ============================================================
-
-
-let recognition = null;
-let isRecording = false;
-
-// Check Web Speech API SpeechRecognition availability
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-if (SpeechRecognition) {
-    recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-
-    recognition.onstart = () => {
-        isRecording = true;
-        micBtn.classList.add("mic-recording");
-        micIcon.textContent = "⏹️";
-        micLabel.textContent = "Listening...";
-        hideElement(queryError);
-    };
-
-    recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        queryInput.value = transcript;
-        micLabel.textContent = "Voice Input";
-        micIcon.textContent = "🎤";
-        micBtn.classList.remove("mic-recording");
-        isRecording = false;
-        // Automatically trigger query if recognized clearly
-        if (transcript.trim().length > 3) {
-            runQuery();
-        }
-    };
-
-
-    recognition.onerror = (event) => {
-        console.warn("Speech recognition error:", event.error);
-        micBtn.classList.remove("mic-recording");
-        micIcon.textContent = "🎤";
-        micLabel.textContent = "Voice Input";
-        isRecording = false;
-        if (event.error !== "no-speech") {
-            showError(queryError, `Speech recognition error: ${event.error}`);
-        }
-    };
-
-    recognition.onend = () => {
-        micBtn.classList.remove("mic-recording");
-        micIcon.textContent = "🎤";
-        micLabel.textContent = "Voice Input";
-        isRecording = false;
-    };
-}
-
-if (micBtn) {
-    micBtn.addEventListener("click", () => {
-        if (!recognition) {
-            alert("Web Speech API is not supported in this browser. Please use Chrome, Edge, or Safari.");
-            return;
-        }
-
-        if (isRecording) {
-            recognition.stop();
-        } else {
-            try {
-                recognition.start();
-            } catch (err) {
-                console.warn("Recognition already started or error:", err);
-            }
-        }
-    });
-}
-
-// Web Speech API Text-to-Speech (speechSynthesis)
-if (speakBtn) {
-    speakBtn.addEventListener("click", () => {
-        if (!("speechSynthesis" in window)) {
-            alert("Text-to-Speech is not supported in your browser.");
-            return;
-        }
-
-        if (window.speechSynthesis.speaking) {
-            window.speechSynthesis.cancel();
-            speakBtn.textContent = "🔊 Read Aloud";
-            return;
-        }
-
-        const textToRead = answerText.textContent.trim();
-        if (!textToRead) return;
-
-        const utterance = new SpeechSynthesisUtterance(textToRead);
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
-        utterance.lang = "en-US";
-
-        utterance.onstart = () => {
-            speakBtn.textContent = "⏹️ Stop";
-        };
-
-        utterance.onend = () => {
-            speakBtn.textContent = "🔊 Read Aloud";
-        };
-
-        utterance.onerror = () => {
-            speakBtn.textContent = "🔊 Read Aloud";
-        };
-
-        window.speechSynthesis.speak(utterance);
-    });
-}
 
 
 
