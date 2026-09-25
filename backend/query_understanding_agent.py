@@ -92,6 +92,26 @@ class QueryUnderstandingAgent:
             "what does that do",
         ]
 
+        # Words with multiple distinct meanings across domains — trigger clarification
+        self.multi_meaning_words = {
+            "python": ["Python programming language", "Python (the snake / biology)"],
+            "networks": ["Computer Networks (CSE)", "Neural Networks (AI/ML)"],
+            "network": ["Computer Network", "Neural Network (AI)"],
+            "memory": ["Computer Memory (RAM/ROM)", "Memory Management (OS)"],
+            "language": ["Programming language", "Natural language / Linguistics"],
+            "agent": ["AI Agent (software)", "Agent (general/business context)"],
+            "architecture": ["Computer Architecture", "Software Architecture"],
+            "security": ["Cybersecurity", "Network Security"],
+            "intelligence": ["Artificial Intelligence", "Human Intelligence (Psychology)"],
+            "learning": ["Machine Learning (AI)", "Human Learning / Education"],
+            "model": ["AI/ML Model", "Database Model"],
+            "cloud": ["Cloud Computing", "Cloud Storage"],
+            "protocol": ["Network Protocol", "Communication Protocol"],
+            "kernel": ["OS Kernel", "Kernel function (Mathematics/ML)"],
+            "thread": ["OS Thread (Multithreading)", "Programming Thread"],
+            "interface": ["User Interface (UI)", "Network Interface / API"],
+        }
+
     def _is_ambiguous(self, query: str) -> Tuple[bool, float, str]:
         cleaned = query.strip().lower()
         normalized = re.sub(r"[^\w\s]", "", cleaned).strip()
@@ -121,7 +141,50 @@ class QueryUnderstandingAgent:
             if not substantive_words:
                 return True, 0.88, "Query refers to demonstrative pronoun ('it', 'this', 'that') without an identified domain concept."
 
+        # Check for underspecified domain queries lacking substantive qualifiers or context
+        # e.g., "What is the application process?", "Tell me about the requirements", "How do I apply?"
+        generic_domain_nouns = {
+            "requirements", "requirement", "criteria", "eligibility", "process",
+            "procedure", "workflow", "deadline", "deadlines", "details", "steps",
+            "rules", "policy", "fees", "prerequisites", "prerequisite", "documents",
+            "application", "apply"
+        }
+        stopwords_and_fillers = {
+            "what", "is", "are", "the", "tell", "me", "about", "how", "do", "i",
+            "can", "to", "give", "show", "please", "for", "of", "in", "with",
+            "a", "an", "any", "some", "my", "our", "all", "need", "needed", "get"
+        }
+
+        if len(words) <= 7:
+            non_generic = [w for w in words if w not in generic_domain_nouns and w not in stopwords_and_fillers]
+            has_generic = any(w in generic_domain_nouns for w in words)
+            if has_generic and not non_generic:
+                matched = [w for w in words if w in generic_domain_nouns]
+                return True, 0.90, f"Query asks about generic domain concept ({', '.join(matched)}) without identifying the program, course, or subject."
+
+        # Check for multi-meaning words — words that have two or more distinct domain interpretations
+        # e.g., "tell me about python" → could be programming language OR the snake
+        # e.g., "tell me about networks" → could be computer networks OR neural networks
+        filler_words = {
+            "tell", "me", "about", "explain", "what", "is", "are", "describe",
+            "show", "give", "discuss", "the", "a", "an", "please", "can", "you",
+            "briefly", "in", "detail", "details", "i", "want", "to", "know",
+            "understand", "how", "does", "do", "and", "of", "its"
+        }
+        for word in words:
+            if word in self.multi_meaning_words:
+                # Make sure query doesn't already have disambiguating context
+                remaining = [w for w in words if w != word and w not in filler_words]
+                if not remaining:
+                    options = self.multi_meaning_words[word]
+                    return (
+                        True,
+                        0.93,
+                        f"'{word}' has multiple domain meanings ({' / '.join(options)}) and the query lacks disambiguating context."
+                    )
+
         return False, 0.0, ""
+
 
     def analyze(self, query: str) -> Dict[str, Any]:
         if not query or not query.strip():

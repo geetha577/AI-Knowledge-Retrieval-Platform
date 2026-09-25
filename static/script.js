@@ -1,564 +1,810 @@
 /**
  * script.js
- * Frontend controller for the AI-Based Knowledge Retrieval Platform.
- * Handles document upload, query execution, and dynamic UI rendering.
+ * AI-Based Knowledge Retrieval Platform — Milestone 3
+ * Conversational Multi-Agent Query Resolution, Ambiguity Clarification & Ingestion UI
  */
+
+"use strict";
 
 // ============================================================
 // DOM Element References
 // ============================================================
 
-const fileInput        = document.getElementById("file-input");
-const dropZone         = document.getElementById("drop-zone");
-const documentsList    = document.getElementById("documents-list");
-const chunkCountBadge  = document.getElementById("chunk-count-badge");
-const uploadError      = document.getElementById("upload-error");
-const uploadProgressArea = document.getElementById("upload-progress-area");
-const uploadStatusLabel  = document.getElementById("upload-status-label");
-const uploadProgressBar  = document.getElementById("upload-progress-bar");
+// Sidebar: Upload & Knowledge Base
+const dropZone          = document.getElementById("drop-zone");
+const fileInput         = document.getElementById("file-input");
+const uploadError       = document.getElementById("upload-error");
+const uploadProgressArea= document.getElementById("upload-progress-area");
+const uploadStatusLabel = document.getElementById("upload-status-label");
+const uploadProgressBar = document.getElementById("upload-progress-bar");
+const documentsList     = document.getElementById("documents-list");
+const chunkCountBadge   = document.getElementById("chunk-count-badge");
+const refreshDocsBtn    = document.getElementById("refresh-docs-btn");
+const sampleDocsList    = document.getElementById("sample-docs-list");
+const resetBtn          = document.getElementById("reset-btn");
+const healthBadge       = document.getElementById("health-badge");
 
-const queryInput       = document.getElementById("query-input");
-const askBtn           = document.getElementById("ask-btn");
-const queryError       = document.getElementById("query-error");
-const queryStatusArea  = document.getElementById("query-status-area");
-const pipelineSteps    = document.getElementById("pipeline-steps");
+// Chat & Query Stream
+const chatStream        = document.getElementById("chat-stream");
+const emptyChatState    = document.getElementById("empty-chat-state");
+const clearChatBtn      = document.getElementById("clear-chat-btn");
+const liveProgressArea  = document.getElementById("live-progress-area");
+const progressStepsTrail= document.getElementById("progress-steps-trail");
 
+// Input Area
+const queryInput        = document.getElementById("query-input");
+const askBtn            = document.getElementById("ask-btn");
+const queryError        = document.getElementById("query-error");
+const activeSessionInd  = document.getElementById("active-session-indicator");
+const sessionText       = document.getElementById("session-text");
+const cancelSessionBtn  = document.getElementById("cancel-session-btn");
+const voiceInputBtn     = document.getElementById("voice-input-btn");
+const voiceStatusBar    = document.getElementById("voice-status-bar");
+const voiceStatusText   = document.getElementById("voice-status-text");
+const stopVoiceBtn      = document.getElementById("stop-voice-btn");
 
-const answerArea       = document.getElementById("answer-area");
-const answerText       = document.getElementById("answer-text");
-const confidenceBadge  = document.getElementById("confidence-badge");
-const queryTypeBadge   = document.getElementById("query-type-badge");
-
-const sourcesArea      = document.getElementById("sources-area");
-const sourcesList      = document.getElementById("sources-list");
-
-const debugArea        = document.getElementById("debug-area");
-const debugToggleBtn   = document.getElementById("debug-toggle-btn");
-const debugContent     = document.getElementById("debug-content");
-const debugToggleIcon  = document.getElementById("debug-toggle-icon");
-
-const refreshDocsBtn   = document.getElementById("refresh-docs-btn");
-const resetBtn         = document.getElementById("reset-btn");
-const sampleDocsList   = document.getElementById("sample-docs-list");
+// Application State
+let currentConvId = null;
+let currentSessionId = null;
+let currentOriginalQuery = null;
+let isProcessing = false;
+let speechRecognizer = null;
+let isRecording = false;
 
 
 // ============================================================
 // Initialization
 // ============================================================
 
-window.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", () => {
+    checkHealth();
     loadDocuments();
     loadSampleDocs();
-    setupDropZone();
+    setupEventListeners();
+    setupAutoResizeTextarea();
+    setupVoiceInput();
 });
 
 
-// ============================================================
-// Section: Document Upload
-// ============================================================
+function setupEventListeners() {
+    // File upload
+    if (fileInput) fileInput.addEventListener("change", handleFileSelect);
+    if (dropZone) {
+        dropZone.addEventListener("dragover", handleDragOver);
+        dropZone.addEventListener("dragleave", handleDragLeave);
+        dropZone.addEventListener("drop", handleDrop);
+    }
 
-/** Set up drag-and-drop event handlers on the drop zone element. */
-function setupDropZone() {
-    dropZone.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        dropZone.classList.add("drag-over");
-    });
-    dropZone.addEventListener("dragleave", () => {
-        dropZone.classList.remove("drag-over");
-    });
-    dropZone.addEventListener("drop", (e) => {
-        e.preventDefault();
-        dropZone.classList.remove("drag-over");
-        const file = e.dataTransfer.files[0];
-        if (file) handleFileUpload(file);
-    });
+    // Refresh & Reset
+    if (refreshDocsBtn) refreshDocsBtn.addEventListener("click", loadDocuments);
+    if (resetBtn) resetBtn.addEventListener("click", handleResetKnowledgeBase);
 
-    fileInput.addEventListener("change", () => {
-        if (fileInput.files[0]) handleFileUpload(fileInput.files[0]);
+    // Query Actions
+    if (askBtn) askBtn.addEventListener("click", () => submitQuery());
+    if (clearChatBtn) clearChatBtn.addEventListener("click", handleClearChat);
+    if (cancelSessionBtn) cancelSessionBtn.addEventListener("click", handleCancelSession);
+
+    // Enter to send, Shift+Enter for newline
+    if (queryInput) {
+        queryInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submitQuery();
+            }
+        });
+    }
+
+    // Suggested prompt cards in empty state
+    document.querySelectorAll(".prompt-card").forEach(card => {
+        card.addEventListener("click", () => {
+            const query = card.getAttribute("data-query");
+            if (query) {
+                queryInput.value = query;
+                submitQuery(query);
+            }
+        });
     });
 }
 
-/** Uploads a file to the Flask /upload endpoint and updates the UI. */
-async function handleFileUpload(file) {
-    // Clear previous errors
+
+function setupAutoResizeTextarea() {
+    if (!queryInput) return;
+    queryInput.addEventListener("input", () => {
+        queryInput.style.height = "auto";
+        queryInput.style.height = Math.min(queryInput.scrollHeight, 120) + "px";
+    });
+}
+
+
+// ============================================================
+// Section: System Health & Knowledge Base Management
+// ============================================================
+
+async function checkHealth() {
+    try {
+        const res = await fetch("/health");
+        if (res.ok) {
+            const data = await res.json();
+            updateChunkBadge(data.total_chunks || 0);
+        }
+    } catch (err) {
+        console.warn("Health check failed:", err);
+    }
+}
+
+async function loadDocuments() {
+    try {
+        const res = await fetch("/documents");
+        if (!res.ok) throw new Error("Failed to fetch documents.");
+        const data = await res.json();
+        const docs = data.documents || [];
+        const totalChunks = data.total_chunks || 0;
+
+        renderDocumentsList(docs);
+        updateChunkBadge(totalChunks);
+    } catch (err) {
+        if (documentsList) {
+            documentsList.innerHTML = `<p class="empty-state">Could not load documents list.</p>`;
+        }
+    }
+}
+
+
+function renderDocumentsList(docs) {
+    if (!documentsList) return;
+    if (!docs || docs.length === 0) {
+        documentsList.innerHTML = `<p class="empty-state">No documents indexed yet.</p>`;
+        return;
+    }
+
+    documentsList.innerHTML = docs.map(doc => `
+        <div class="doc-item">
+            <div class="doc-item-name" title="${escapeHtml(doc.document_name)}">
+                ${escapeHtml(doc.document_name)}
+            </div>
+            <div class="doc-item-meta">
+                ${doc.total_chunks} chunk${doc.total_chunks === 1 ? "" : "s"}
+            </div>
+        </div>
+    `).join("");
+}
+
+function updateChunkBadge(count) {
+    if (!chunkCountBadge) return;
+    if (count > 0) {
+        chunkCountBadge.textContent = `${count} chunks`;
+        showElement(chunkCountBadge);
+    } else {
+        hideElement(chunkCountBadge);
+    }
+}
+
+async function loadSampleDocs() {
+    if (!sampleDocsList) return;
+    try {
+        const res = await fetch("/sample_docs");
+        if (!res.ok) return;
+        const data = await res.json();
+        const samples = data.samples || [];
+
+        if (samples.length === 0) {
+            sampleDocsList.innerHTML = `<p class="hint-text">No sample documents found.</p>`;
+            return;
+        }
+
+        sampleDocsList.innerHTML = samples.map(doc => `
+            <button class="sample-doc-btn" onclick="loadSampleFile('${escapeHtml(doc.filename)}')">
+                <span>${escapeHtml(doc.filename)}</span>
+                <span class="format-badge">${(doc.type || doc.format || "DOC").toUpperCase()}</span>
+            </button>
+        `).join("");
+    } catch (err) {
+        console.warn("Error loading sample docs:", err);
+    }
+}
+
+async function loadSampleFile(filename) {
     hideElement(uploadError);
-    showUploadProgress("Uploading file...", 15);
+    showUploadProgress("Indexing sample document...");
+
+    try {
+        // Bug Fix: use POST /load_sample with JSON body, not URL param
+        const res = await fetch("/load_sample", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ filename }),
+        });
+        const data = await res.json();
+        hideUploadProgress();
+
+        if (!res.ok || data.error) {
+            showError(uploadError, data.error || "Failed to index sample.");
+        } else {
+            showUploadSuccess(`✅ "${data.document_name}" loaded — ${data.chunks_created} chunks indexed.`);
+            await loadDocuments();
+        }
+    } catch (err) {
+        hideUploadProgress();
+        showError(uploadError, "Network error loading sample document.");
+    }
+}
+
+
+
+async function handleResetKnowledgeBase() {
+    if (!confirm("Are you sure you want to clear the knowledge base and all active clarification sessions?")) {
+        return;
+    }
+
+    try {
+        const res = await fetch("/reset", { method: "POST" });
+        if (res.ok) {
+            handleCancelSession();
+            handleClearChat();
+            await loadDocuments();
+            alert("Knowledge base and clarification sessions successfully cleared.");
+        }
+    } catch (err) {
+        alert("Failed to reset knowledge base. Please try again.");
+    }
+}
+
+
+// ============================================================
+// Section: Document Upload Handlers
+// ============================================================
+
+function handleDragOver(e) {
+    e.preventDefault();
+    if (dropZone) dropZone.classList.add("dragover");
+}
+
+function handleDragLeave() {
+    if (dropZone) dropZone.classList.remove("dragover");
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    if (dropZone) dropZone.classList.remove("dragover");
+    const files = e.dataTransfer.files;
+    if (files.length > 0) uploadFile(files[0]);
+}
+
+function handleFileSelect(e) {
+    const files = e.target.files;
+    if (files.length > 0) uploadFile(files[0]);
+}
+
+async function uploadFile(file) {
+    hideElement(uploadError);
+    hideElement(uploadSuccessMsg());
+    const allowed = ["pdf", "docx", "txt", "csv"];
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (!allowed.includes(ext)) {
+        showError(uploadError, `Unsupported format '.${ext}'. Please upload PDF, DOCX, TXT, or CSV.`);
+        return;
+    }
+
+    showUploadProgress(`Uploading & indexing ${file.name}...`);
 
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-        showUploadProgress("Extracting text content...", 35);
+        const res = await fetch("/upload", { method: "POST", body: formData });
+        const data = await res.json();
+        hideUploadProgress();
 
-        const response = await fetch("/upload", {
-            method: "POST",
-            body: formData,
-        });
-        const data = await response.json();
-
-        if (!response.ok || data.error) {
-            showError(uploadError, data.error || "Upload failed. Please try again.");
-            hideUploadProgress();
-            return;
+        if (!res.ok || data.error) {
+            showError(uploadError, data.error || "Upload failed.");
+        } else {
+            if (fileInput) fileInput.value = "";
+            showUploadSuccess(`✅ "${data.document_name}" indexed — ${data.chunks_created} chunks created.`);
+            await loadDocuments();
         }
-
-        showUploadProgress("Generating embeddings...", 65);
-        await sleep(300); // Brief visual pause for UX
-
-        showUploadProgress("Writing to vector index...", 85);
-        await sleep(300);
-
-        showUploadProgress("Indexed successfully!", 100);
-        await sleep(700);
-        hideUploadProgress();
-
-        // Refresh the document list
-        loadDocuments();
-
-        // Reset file input so the same file can be re-uploaded if needed
-        fileInput.value = "";
-
     } catch (err) {
-        showError(uploadError, "Network error: Could not reach the server.");
         hideUploadProgress();
+        showError(uploadError, "Network error during upload.");
     }
 }
 
-/** Shows upload progress bar and label. */
-function showUploadProgress(label, percent) {
-    showElement(uploadProgressArea);
-    uploadStatusLabel.textContent = label;
-    uploadProgressBar.style.width = percent + "%";
+function uploadSuccessMsg() {
+    let el = document.getElementById("upload-success-msg");
+    if (!el) {
+        el = document.createElement("div");
+        el.id = "upload-success-msg";
+        el.className = "alert alert-success";
+        el.style.cssText = "display:none; margin-top:0.5rem; font-size:0.82rem;";
+        const errorEl = document.getElementById("upload-error");
+        if (errorEl && errorEl.parentNode) {
+            errorEl.parentNode.insertBefore(el, errorEl.nextSibling);
+        }
+    }
+    return el;
 }
 
-/** Hides the upload progress bar. */
+function showUploadSuccess(message) {
+    const el = uploadSuccessMsg();
+    el.textContent = message;
+    showElement(el);
+    setTimeout(() => hideElement(el), 5000);
+}
+
+
+
+function showUploadProgress(label) {
+    if (!uploadProgressArea) return;
+    if (uploadStatusLabel) uploadStatusLabel.textContent = label;
+    if (uploadProgressBar) uploadProgressBar.style.width = "75%";
+    showElement(uploadProgressArea);
+}
+
 function hideUploadProgress() {
+    if (!uploadProgressArea) return;
+    if (uploadProgressBar) uploadProgressBar.style.width = "100%";
     setTimeout(() => {
         hideElement(uploadProgressArea);
-        uploadProgressBar.style.width = "0%";
+        if (uploadProgressBar) uploadProgressBar.style.width = "0%";
     }, 400);
 }
 
 
 // ============================================================
-// Section: Document List
+// Section: Conversational Query & Multi-Turn Clarification
 // ============================================================
 
-/** Fetches indexed document metadata from /documents and renders the list. */
-async function loadDocuments() {
-    try {
-        const response = await fetch("/documents");
-        const data = await response.json();
-        renderDocumentsList(data.documents || []);
+async function submitQuery(overrideText = null) {
+    if (isProcessing) return;
 
-        if (data.total_chunks > 0) {
-            chunkCountBadge.textContent = `${data.total_chunks} chunks indexed`;
-            showElement(chunkCountBadge);
-        } else {
-            hideElement(chunkCountBadge);
+    const text = (overrideText !== null ? overrideText : (queryInput ? queryInput.value : "")).trim();
+    if (!text) {
+        showError(queryError, "Please type a question or clarification.");
+        return;
+    }
+
+    hideElement(queryError);
+    if (queryInput) {
+        queryInput.value = "";
+        queryInput.style.height = "auto";
+    }
+
+    // Hide empty state on first message
+    if (emptyChatState) hideElement(emptyChatState);
+
+    // Append user message to chat stream
+    appendUserMessage(text);
+
+    // Set UI loading state
+    isProcessing = true;
+    if (askBtn) {
+        askBtn.disabled = true;
+        askBtn.querySelector(".btn-text").textContent = "Resolving...";
+    }
+
+    // Show live progress indicator
+    showLiveProgress(currentSessionId ? "Resolving clarification..." : "Understanding query...");
+
+    try {
+        // Animate initial agent progress
+        await sleep(200);
+        updateProgressTrail([
+            { label: "Understanding Query", state: "active" },
+            { label: currentSessionId ? "Merging Context" : "Analyzing Intent", state: "pending" },
+            { label: "Retrieval", state: "pending" },
+            { label: "Response", state: "pending" },
+        ]);
+
+        const payload = {
+            question: text,
+            session_id: currentSessionId,
+            is_clarification: Boolean(currentSessionId),
+            conv_id: currentConvId,
+        };
+
+        const res = await fetch("/query", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await res.json();
+        hideLiveProgress();
+
+        if (data.conv_id) {
+            currentConvId = data.conv_id;
         }
+
+        if (!res.ok || data.error) {
+            appendErrorMessage(data.error || "Could not process request. Please try again.");
+            resetButtonState();
+            return;
+        }
+
+        // Branch 1: Ambiguity detected -> Clarification Required
+        if (data.status === "clarification_required") {
+            currentSessionId = data.session_id;
+            currentOriginalQuery = data.original_query || text;
+
+            showActiveSessionBanner(currentOriginalQuery);
+            appendClarificationMessage(data);
+
+            if (queryInput) {
+                queryInput.placeholder = "Type your clarification or choose a suggestion above...";
+                queryInput.focus();
+            }
+        }
+        // Branch 2: Resolved or normal grounded answer
+        else {
+            currentSessionId = null;
+            currentOriginalQuery = null;
+            hideActiveSessionBanner();
+
+            appendAssistantAnswer(data);
+
+            if (queryInput) {
+                queryInput.placeholder = "Ask a question about your knowledge base... (Press Enter to send)";
+            }
+        }
+
     } catch (err) {
-        documentsList.innerHTML = `<p class="empty-state">Could not load document list.</p>`;
+        hideLiveProgress();
+        appendErrorMessage("Network error: Could not reach the server.");
+    } finally {
+        resetButtonState();
+        scrollToBottom();
     }
 }
 
-/** Renders the list of indexed documents. */
-function renderDocumentsList(docs) {
-    if (docs.length === 0) {
-        documentsList.innerHTML = `<p class="empty-state">No documents indexed yet.</p>`;
-        return;
+function resetButtonState() {
+    isProcessing = false;
+    if (askBtn) {
+        askBtn.disabled = false;
+        askBtn.querySelector(".btn-text").textContent = "Ask";
     }
-    documentsList.innerHTML = docs.map(doc => {
-        const ext = doc.document_type ? doc.document_type.toLowerCase() : "other";
-        const iconClass = `doc-icon-${ext}`;
-        const meta = doc.pages && doc.pages.length > 0
-            ? `${doc.chunk_count} chunks — Pages: ${doc.pages.join(", ")}`
-            : `${doc.chunk_count} chunks`;
-        return `
-            <div class="doc-item">
-                <div class="doc-item-icon ${iconClass}">${doc.document_type || "?"}</div>
-                <div class="doc-item-info">
-                    <div class="doc-item-name" title="${escapeHtml(doc.document_name)}">${escapeHtml(doc.document_name)}</div>
-                    <div class="doc-item-meta">${meta}</div>
+}
+
+
+// ============================================================
+// Section: Chat Message Rendering
+// ============================================================
+
+function appendUserMessage(text) {
+    if (!chatStream) return;
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const msgEl = document.createElement("div");
+    msgEl.className = "msg-user";
+    msgEl.innerHTML = `
+        <div class="msg-user-bubble">${escapeHtml(text)}</div>
+        <div class="msg-timestamp">${timeStr}</div>
+    `;
+    chatStream.appendChild(msgEl);
+    scrollToBottom();
+}
+
+function appendClarificationMessage(data) {
+    if (!chatStream) return;
+    const qText = data.clarification_question || "Could you please provide more details to clarify your request?";
+    const reason = data.debug_details?.reason || "";
+    const suggestions = data.suggested_options || [];
+
+    const msgEl = document.createElement("div");
+    msgEl.className = "msg-assistant";
+
+    let chipsHtml = "";
+    if (suggestions.length > 0) {
+        chipsHtml = `
+            <div class="suggestion-chips-container">
+                ${suggestions.map(opt => `
+                    <button class="suggestion-chip" onclick="handleSuggestionClick('${escapeHtml(opt)}')">
+                        ${escapeHtml(opt)}
+                    </button>
+                `).join("")}
+            </div>
+        `;
+    }
+
+    msgEl.innerHTML = `
+        <div class="msg-clarification-card">
+            <div class="clarification-callout-header">
+                <span class="clarification-callout-tag">Clarification Needed</span>
+                <span class="clarification-banner-title">Before I answer, I need a little more information</span>
+            </div>
+            <div class="clarification-question-text">${escapeHtml(qText)}</div>
+            ${reason ? `<div class="clarification-reason-hint">${escapeHtml(reason)}</div>` : ""}
+            ${chipsHtml}
+        </div>
+    `;
+
+    chatStream.appendChild(msgEl);
+    scrollToBottom();
+}
+
+function handleSuggestionClick(optionText) {
+    if (isProcessing) return;
+    if (queryInput) {
+        queryInput.value = optionText;
+    }
+    submitQuery(optionText);
+}
+
+function appendAssistantAnswer(data) {
+    if (!chatStream) return;
+
+    const msgEl = document.createElement("div");
+    msgEl.className = "msg-assistant";
+
+    const qType = (data.query_type || "factual").toLowerCase();
+    let qBadgeClass = "badge-factual";
+    if (qType === "procedural") qBadgeClass = "badge-procedural";
+    else if (qType === "comparative") qBadgeClass = "badge-comparative";
+    else if (qType === "ambiguous") qBadgeClass = "badge-ambiguous";
+
+    const conf = data.confidence || "None";
+    let confClass = "badge-none";
+    if (conf.toLowerCase() === "high") confClass = "badge-high";
+    else if (conf.toLowerCase() === "medium") confClass = "badge-medium";
+    else if (conf.toLowerCase() === "low") confClass = "badge-low";
+
+    const confPercent = data.classification_confidence ? ` (${Math.round(data.classification_confidence * 100)}%)` : "";
+
+    // Resolved query notice if applicable
+    let resolvedHtml = "";
+    if (data.resolved_query) {
+        resolvedHtml = `
+            <div class="msg-resolved-notice">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                <span><strong>Context Resolved:</strong> ${escapeHtml(data.resolved_query)}</span>
+            </div>
+        `;
+    }
+
+    // Milestone 3.4 — Response Transparency Panel
+    const sources = data.sources || [];
+    const sourceCardId = `transparency-${Date.now()}`;
+    let transparencyHtml = "";
+
+    if (sources.length > 0) {
+        const topScore = Math.max(...sources.map(s => s.similarity_score || 0));
+        const topScorePct = Math.round(topScore * 100);
+
+        transparencyHtml = `
+            <div class="transparency-panel">
+                <button type="button" class="transparency-toggle-btn" onclick="toggleSources('${sourceCardId}')">
+                    <div class="transparency-toggle-left">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="16" y1="13" x2="8" y2="13"/>
+                            <line x1="16" y1="17" x2="8" y2="17"/>
+                            <polyline points="10 9 9 9 8 9"/>
+                        </svg>
+                        <span>Evidence &amp; Transparency Panel</span>
+                        <span class="transparency-badge">${sources.length} chunk${sources.length === 1 ? "" : "s"}</span>
+                    </div>
+                    <span id="icon-${sourceCardId}">▼</span>
+                </button>
+                <div class="transparency-content" id="${sourceCardId}">
+                    <div class="transparency-summary-bar">
+                        <span><strong>Retrieved Evidence:</strong> ${sources.length} chunk${sources.length === 1 ? "" : "s"} from vector index</span>
+                        <span><strong>Top Relevance:</strong> ${topScorePct}%</span>
+                    </div>
+                    ${sources.map((src, idx) => {
+                        const score = src.similarity_score !== undefined ? Math.round(src.similarity_score * 100) : 0;
+                        const pageText = src.page_number ? `Page ${src.page_number}` : (src.row_number ? `Row ${src.row_number}` : "Main section");
+                        let fillClass = "score-fill-low";
+                        if (score >= 70) fillClass = "score-fill-high";
+                        else if (score >= 40) fillClass = "score-fill-medium";
+
+                        const citationRef = src.citation_ref || `[Citation #${idx + 1}]`;
+                        const snippet = src.full_text || src.text_snippet || src.content || "Snippet unavailable.";
+
+                        return `
+                            <div class="chunk-evidence-card">
+                                <div class="chunk-evidence-header">
+                                    <span class="chunk-citation-badge">${escapeHtml(citationRef)}</span>
+                                    <span class="chunk-doc-info">${escapeHtml(src.document_name || "Document")} &middot; ${pageText}</span>
+                                    <div class="chunk-score-area">
+                                        <div class="score-progress-bar" title="Similarity match: ${score}%">
+                                            <div class="score-progress-fill ${fillClass}" style="width: ${Math.min(score, 100)}%;"></div>
+                                        </div>
+                                        <span class="chunk-score-label">${score}%</span>
+                                    </div>
+                                </div>
+                                <div class="chunk-text-evidence">${escapeHtml(snippet)}</div>
+                            </div>
+                        `;
+                    }).join("")}
                 </div>
             </div>
         `;
-    }).join("");
-}
-
-refreshDocsBtn.addEventListener("click", () => loadDocuments());
-
-
-// ============================================================
-// Section: Sample Documents
-// ============================================================
-
-/** Loads sample document list from /sample_docs. */
-async function loadSampleDocs() {
-    try {
-        const response = await fetch("/sample_docs");
-        const data = await response.json();
-        renderSampleDocs(data.samples || []);
-    } catch (err) {
-        sampleDocsList.innerHTML = `<p class="hint-text">Could not load sample documents.</p>`;
+    } else if (conf.toLowerCase() === "none" || conf.toLowerCase() === "low") {
+        transparencyHtml = `
+            <div class="transparency-panel">
+                <div style="padding: 0.75rem 1.15rem;">
+                    <div class="low-confidence-box">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="12" y1="8" x2="12" y2="12"/>
+                            <line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        <div>
+                            <strong>Evidence Transparency Note:</strong> No indexed document chunks met the minimum similarity threshold (0.25). A grounded rejection was generated to prevent hallucination.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
     }
-}
 
-/** Renders sample document items with "Load" buttons. */
-function renderSampleDocs(samples) {
-    if (samples.length === 0) {
-        sampleDocsList.innerHTML = `<p class="hint-text">No sample documents found.</p>`;
-        return;
+    // Pipeline telemetry trace
+    const traceId = `trace-${Date.now()}`;
+    const stages = data.pipeline_stages || [];
+    let traceHtml = "";
+    if (stages.length > 0) {
+        const traceFormatted = JSON.stringify(stages, null, 2);
+        traceHtml = `
+            <div class="pipeline-trace-box">
+                <button class="trace-toggle-btn" onclick="toggleTrace('${traceId}')">
+                    <span>Agent Pipeline Trace (${stages.length} stages)</span>
+                    <span id="icon-${traceId}">+</span>
+                </button>
+                <div class="trace-details" id="${traceId}" style="display:none;">${escapeHtml(traceFormatted)}</div>
+            </div>
+        `;
     }
-    sampleDocsList.innerHTML = samples.map(s => `
-        <div class="sample-doc-item">
-            <span class="sample-doc-name">${escapeHtml(s.filename)}</span>
-            <span class="sample-doc-size">${s.size_kb} KB</span>
-            <button class="btn btn-outline btn-sm" onclick="loadSampleDocument('${escapeHtml(s.filename)}', this)">Load</button>
+
+    msgEl.innerHTML = `
+        <div class="msg-assistant-card">
+            <div class="msg-assistant-header">
+                <div class="assistant-badges">
+                    <span class="badge ${qBadgeClass}">Type: ${capitalize(qType)}${confPercent}</span>
+                    <span class="badge ${confClass}">Confidence: ${conf}</span>
+                </div>
+                <!-- Milestone 3.3 Text-to-Speech (TTS) Control -->
+                <div class="tts-controls-group">
+                    <button type="button" class="btn-tts" onclick="handleTTS(this)" title="Read answer aloud via Web Speech API">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                        </svg>
+                        <span class="tts-label">Listen</span>
+                    </button>
+                </div>
+            </div>
+            ${resolvedHtml}
+            <div class="msg-answer-body">
+                ${escapeHtml(data.answer || "No response generated.")}
+            </div>
+            ${transparencyHtml}
+            ${traceHtml}
         </div>
-    `).join("");
+    `;
+
+    chatStream.appendChild(msgEl);
+    scrollToBottom();
 }
 
-/** Loads a specific sample document via /load_sample endpoint. */
-async function loadSampleDocument(filename, btn) {
-    btn.disabled = true;
-    btn.textContent = "Loading...";
-    hideElement(uploadError);
-
-    try {
-        const response = await fetch("/load_sample", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ filename }),
-        });
-        const data = await response.json();
-
-        if (!response.ok || data.error) {
-            showError(uploadError, data.error || "Failed to load sample.");
-            btn.disabled = false;
-            btn.textContent = "Load";
-            return;
-        }
-
-        btn.textContent = "Loaded";
-        btn.style.color = "var(--color-success)";
-        btn.style.borderColor = "var(--color-success)";
-        loadDocuments();
-
-    } catch (err) {
-        showError(uploadError, "Network error loading sample.");
-        btn.disabled = false;
-        btn.textContent = "Load";
-    }
+function appendErrorMessage(errorText) {
+    if (!chatStream) return;
+    const msgEl = document.createElement("div");
+    msgEl.className = "msg-assistant";
+    msgEl.innerHTML = `
+        <div class="alert alert-error" style="max-width: 90%;">
+            <strong>Error:</strong> ${escapeHtml(errorText)}
+        </div>
+    `;
+    chatStream.appendChild(msgEl);
+    scrollToBottom();
 }
 
-
-// ============================================================
-// Section: Query Execution
-// ============================================================
-
-askBtn.addEventListener("click", runQuery);
-
-queryInput.addEventListener("keydown", (e) => {
-    // Allow Ctrl+Enter or Shift+Enter to submit
-    if (e.key === "Enter" && (e.ctrlKey || e.shiftKey)) {
-        e.preventDefault();
-        runQuery();
-    }
-});
-
-/** Submits the user's question to /query and renders results. */
-async function runQuery() {
-    const question = queryInput.value.trim();
-
-    hideElement(queryError);
-    hideElement(answerArea);
-    hideElement(sourcesArea);
-    hideElement(debugArea);
-
-    if (!question) {
-        showError(queryError, "Please enter a question before submitting.");
-        return;
-    }
-
-    askBtn.disabled = true;
-    askBtn.textContent = "Searching...";
-
-    // Show pipeline steps for Multi-Agent Orchestration
-    showElement(queryStatusArea);
-    renderPipelineSteps([
-        { id: "step-understanding", label: "Query Understanding Agent", state: "active" },
-        { id: "step-retrieval",     label: "Retrieval Agent",           state: "pending" },
-        { id: "step-generation",    label: "Response Generation Agent", state: "pending" },
-    ]);
-
-    try {
-        // Animate agent transitions sequentially
-        await sleep(250);
-        updateStep("step-understanding", "done");
-        updateStep("step-retrieval", "active");
-
-        const response = await fetch("/query", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question }),
-        });
-        const data = await response.json();
-
-        updateStep("step-retrieval", "done");
-        updateStep("step-generation", "active");
-        await sleep(200);
-
-        if (!response.ok || data.error) {
-            showError(queryError, data.error || "Query failed. Please try again.");
-            updateStep("step-generation", "error");
-            askBtn.disabled = false;
-            askBtn.textContent = "Ask Question";
-            return;
-        }
-
-        updateStep("step-generation", "done");
-
-        // Render answer, sources, and debug panel
-        renderAnswer(data);
-        renderSources(data.sources || []);
-        renderDebugPanel(data.debug_details || {}, question, data.answer);
-
-    } catch (err) {
-        showError(queryError, "Network error: Could not reach the server.");
-        clearPipelineSteps();
-    }
-
-    askBtn.disabled = false;
-    askBtn.textContent = "Ask Question";
-}
-
-/** Renders pipeline status step indicators. */
-function renderPipelineSteps(steps) {
-    pipelineSteps.innerHTML = steps.map((step, idx) => `
-        ${idx > 0 ? '<span class="step-connector">&#8594;</span>' : ""}
-        <span class="pipeline-step ${step.state === "active" ? "active" : step.state === "done" ? "done" : ""}"
-              id="${step.id}">
-            ${step.label}
-        </span>
-    `).join("");
-}
-
-function updateStep(id, state) {
+function toggleSources(id) {
     const el = document.getElementById(id);
+    const icon = document.getElementById(`icon-${id}`);
     if (!el) return;
-    el.className = `pipeline-step ${state}`;
+    if (el.style.display === "none") {
+        el.style.display = "flex";
+        if (icon) icon.textContent = "▲";
+    } else {
+        el.style.display = "none";
+        if (icon) icon.textContent = "▼";
+    }
 }
 
-function clearPipelineSteps() {
-    hideElement(queryStatusArea);
+function toggleTrace(id) {
+    const el = document.getElementById(id);
+    const icon = document.getElementById(`icon-${id}`);
+    if (!el) return;
+    if (el.style.display === "none") {
+        el.style.display = "block";
+        if (icon) icon.textContent = "-";
+    } else {
+        el.style.display = "none";
+        if (icon) icon.textContent = "+";
+    }
 }
 
 
 // ============================================================
-// Section: Answer Rendering
+// Section: Clarification Session Controls
 // ============================================================
+
+function showActiveSessionBanner(originalQuery) {
+    if (!activeSessionInd || !sessionText) return;
+    sessionText.textContent = `Clarifying: "${originalQuery.length > 40 ? originalQuery.slice(0, 40) + '...' : originalQuery}"`;
+    showElement(activeSessionInd);
+}
+
+function hideActiveSessionBanner() {
+    if (activeSessionInd) hideElement(activeSessionInd);
+}
+
+function handleCancelSession() {
+    currentSessionId = null;
+    currentOriginalQuery = null;
+    hideActiveSessionBanner();
+    if (queryInput) {
+        queryInput.placeholder = "Ask a question about your knowledge base... (Press Enter to send)";
+    }
+}
+
+function handleClearChat() {
+    if (chatStream) {
+        chatStream.innerHTML = "";
+        if (emptyChatState) {
+            chatStream.appendChild(emptyChatState);
+            showElement(emptyChatState);
+        }
+    }
+    handleCancelSession();
+    currentConvId = null;
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+
+// ============================================================
+// Section: Live Progress Indicator
+// ============================================================
+
+function showLiveProgress(initialStep) {
+    if (!liveProgressArea || !progressStepsTrail) return;
+    progressStepsTrail.innerHTML = `<span class="trail-step active">${escapeHtml(initialStep)}</span>`;
+    showElement(liveProgressArea);
+}
+
+function updateProgressTrail(steps) {
+    if (!progressStepsTrail) return;
+    progressStepsTrail.innerHTML = steps.map((s, idx) => `
+        ${idx > 0 ? '<span class="trail-arrow">&rarr;</span>' : ''}
+        <span class="trail-step ${s.state}">${escapeHtml(s.label)}</span>
+    `).join("");
+}
+
+function hideLiveProgress() {
+    if (liveProgressArea) hideElement(liveProgressArea);
+}
+
+
+// ============================================================
+// Section: Utility Functions
+// ============================================================
+
+function scrollToBottom() {
+    if (!chatStream) return;
+    chatStream.scrollTop = chatStream.scrollHeight;
+}
 
 function capitalize(s) {
     if (!s) return "";
     return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/** Renders the generated answer, query type, and confidence badge. */
-function renderAnswer(data) {
-    const confidence = data.confidence || "None";
-    const badgeClass = confidenceBadgeClass(confidence);
-
-    confidenceBadge.className = `badge ${badgeClass}`;
-    confidenceBadge.textContent = `Confidence: ${confidence}`;
-
-    // Render Query Type badge
-    if (data.query_type && queryTypeBadge) {
-        const qType = data.query_type.toLowerCase();
-        let qBadgeClass = "badge-factual";
-        if (qType === "procedural") qBadgeClass = "badge-procedural";
-        else if (qType === "comparative") qBadgeClass = "badge-comparative";
-        else if (qType === "ambiguous") qBadgeClass = "badge-ambiguous";
-
-        queryTypeBadge.className = `badge ${qBadgeClass}`;
-        const confPercent = data.classification_confidence ? ` (${Math.round(data.classification_confidence * 100)}%)` : "";
-        queryTypeBadge.textContent = `Type: ${capitalize(data.query_type)}${confPercent}`;
-        showElement(queryTypeBadge);
-    } else if (queryTypeBadge) {
-        hideElement(queryTypeBadge);
-    }
-
-    answerText.textContent = data.answer || "No answer returned.";
-    showElement(answerArea);
-}
-
-function confidenceBadgeClass(confidence) {
-    switch (confidence.toLowerCase()) {
-        case "high":   return "badge-high";
-        case "medium": return "badge-medium";
-        case "low":    return "badge-low";
-        default:       return "badge-none";
-    }
-}
-
-
-// ============================================================
-// Section: Sources Rendering
-// ============================================================
-
-/** Renders the retrieved source cards with expandable chunk text. */
-function renderSources(sources) {
-    if (!sources || sources.length === 0) {
-        hideElement(sourcesArea);
-        return;
-    }
-
-    const scoreClass = (rel) => {
-        switch ((rel || "").toLowerCase()) {
-            case "high":   return "badge-high";
-            case "medium": return "badge-medium";
-            case "low":    return "badge-low";
-            default:       return "badge-none";
-        }
-    };
-
-    sourcesList.innerHTML = sources.map((src, idx) => {
-        const pageMeta = src.page_number
-            ? `Page ${src.page_number}`
-            : src.row_number
-            ? `Row ${src.row_number}`
-            : "Full document";
-
-        const scorePercent = Math.round((src.similarity_score || 0) * 100);
-
-        return `
-            <div class="source-card">
-                <div class="source-card-header" onclick="toggleSource(${idx})">
-                    <div class="source-info">
-                        <div class="source-title">${idx + 1}. ${escapeHtml(src.document_name)}</div>
-                        <div class="source-meta">${pageMeta} &mdash; Similarity: ${scorePercent}%</div>
-                    </div>
-                    <span class="badge source-score-badge ${scoreClass(src.relevance)}">${escapeHtml(src.relevance || "N/A")}</span>
-                    <span class="expand-icon" id="expand-icon-${idx}">+</span>
-                </div>
-                <div class="source-card-body" id="source-body-${idx}">
-                    <p class="hint-text" style="margin-bottom:0.5rem;">Retrieved chunk text:</p>
-                    <div class="source-chunk-text">${escapeHtml(src.full_text || src.text_snippet || "")}</div>
-                </div>
-            </div>
-        `;
-    }).join("");
-
-    showElement(sourcesArea);
-}
-
-/** Toggles the expand/collapse state of a source chunk card. */
-function toggleSource(idx) {
-    const body = document.getElementById(`source-body-${idx}`);
-    const icon = document.getElementById(`expand-icon-${idx}`);
-    if (!body || !icon) return;
-
-    const isOpen = body.classList.toggle("open");
-    icon.textContent = isOpen ? "−" : "+";
-    icon.classList.toggle("open", isOpen);
-}
-
-
-// ============================================================
-// Section: Retrieval Details (Explainability Mode)
-// ============================================================
-
-debugToggleBtn.addEventListener("click", () => {
-    const isOpen = debugContent.style.display !== "none";
-    debugContent.style.display = isOpen ? "none" : "block";
-    debugToggleIcon.textContent = isOpen ? "+" : "−";
-});
-
-/** Populates the explainability panel with RAG pipeline step data. */
-function renderDebugPanel(debug, question, answer) {
-    showElement(debugArea);
-
-    // Ensure it starts collapsed
-    debugContent.style.display = "none";
-    debugToggleIcon.textContent = "+";
-
-    // Step 1: Query & Multi-Agent Classification
-    const qTypeStr = debug.query_type ? ` [Classified Type: ${debug.query_type.toUpperCase()}, Route: ${debug.route || 'retrieval'}]` : "";
-    setDebugValue("dbg-query", `${question}${qTypeStr}`);
-
-    // Step 2: Embedding Shape
-    const shape = debug.query_embedding_shape || [];
-    setDebugValue("dbg-embedding", `Vector shape: [${shape.join(", ")}] (normalized float32)`);
-
-    // Step 3: All retrieved chunks
-    const allChunks = debug.all_retrieved_chunks || [];
-    if (allChunks.length > 0) {
-        const chunksText = allChunks.map((c, i) =>
-            `[${i+1}] Score: ${(c.similarity_score || 0).toFixed(4)} | ${c.document_name} | ${c.text ? c.text.slice(0, 80) + "..." : "N/A"}`
-        ).join("\n");
-        setDebugValue("dbg-all-chunks", chunksText);
-    } else {
-        setDebugValue("dbg-all-chunks", "No chunks retrieved (empty knowledge base or FAISS index issue).");
-    }
-
-    // Step 4: Scores
-    const scores = allChunks.map((c, i) =>
-        `[${i+1}] ${(c.similarity_score || 0).toFixed(4)} — ${c.relevance || "N/A"}`
-    ).join("\n");
-    setDebugValue("dbg-scores", scores || "No scores available.");
-
-    // Step 5: Selected context (only those that passed threshold)
-    const selectedCount = debug.selected_chunks_count || 0;
-    const totalCount    = debug.retrieved_chunks_count || 0;
-    setDebugValue("dbg-selected", `${selectedCount} of ${totalCount} chunks passed the similarity threshold and were used as context.`);
-
-    // Step 6: Generator mode
-    setDebugValue("dbg-generator", debug.generator_mode || "Unknown");
-
-    // Step 7: Final answer
-    setDebugValue("dbg-final-answer", answer || "No answer generated.");
-}
-
-function setDebugValue(id, text) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = text;
-}
-
-
-// ============================================================
-// Section: Reset Knowledge Base
-// ============================================================
-
-resetBtn.addEventListener("click", async () => {
-    if (!confirm("Are you sure you want to clear the entire knowledge base? This cannot be undone.")) return;
-
-    try {
-        const response = await fetch("/reset", { method: "POST" });
-        const data = await response.json();
-        if (data.success) {
-            loadDocuments();
-            hideElement(answerArea);
-            hideElement(sourcesArea);
-            hideElement(debugArea);
-            hideElement(queryStatusArea);
-        }
-    } catch (err) {
-        alert("Could not reset the knowledge base. Please try again.");
-    }
-});
-
-
-
-// ============================================================
-// Utility Functions
-// ============================================================
-
-/** Pause execution for a given number of milliseconds. */
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/** Escapes HTML special characters to prevent XSS. */
 function escapeHtml(str) {
     if (!str) return "";
     return String(str)
@@ -577,3 +823,149 @@ function showError(el, message) {
     el.textContent = message;
     showElement(el);
 }
+
+
+// ============================================================
+// Section: Milestone 3.3 — Voice Input & Text-to-Speech (TTS)
+// ============================================================
+
+function setupVoiceInput() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        if (voiceInputBtn) {
+            voiceInputBtn.title = "Speech Recognition is not supported in this browser (Use Chrome or Edge).";
+            voiceInputBtn.style.opacity = "0.5";
+        }
+        return;
+    }
+
+    try {
+        speechRecognizer = new SpeechRecognition();
+        speechRecognizer.continuous = false;
+        speechRecognizer.interimResults = true;
+        speechRecognizer.lang = "en-US";
+
+        speechRecognizer.onstart = () => {
+            isRecording = true;
+            if (voiceInputBtn) voiceInputBtn.classList.add("recording");
+            if (voiceStatusBar) {
+                if (voiceStatusText) voiceStatusText.textContent = "Listening... Speak your query clearly.";
+                showElement(voiceStatusBar);
+            }
+        };
+
+        speechRecognizer.onresult = (event) => {
+            let transcript = "";
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                transcript += event.results[i][0].transcript;
+            }
+            if (queryInput) {
+                queryInput.value = transcript;
+                queryInput.style.height = "auto";
+                queryInput.style.height = Math.min(queryInput.scrollHeight, 120) + "px";
+            }
+        };
+
+        speechRecognizer.onerror = (event) => {
+            console.warn("Speech recognition error:", event.error);
+            stopVoiceInput();
+            if (event.error === "not-allowed") {
+                showError(queryError, "Microphone permission denied. Please allow microphone access in your browser settings.");
+            } else if (event.error !== "no-speech") {
+                showError(queryError, `Voice recognition notice: ${event.error}`);
+            }
+        };
+
+        speechRecognizer.onend = () => {
+            stopVoiceInput();
+        };
+
+        if (voiceInputBtn) {
+            voiceInputBtn.addEventListener("click", () => {
+                if (isRecording) {
+                    stopVoiceInput();
+                } else {
+                    startVoiceInput();
+                }
+            });
+        }
+
+        if (stopVoiceBtn) {
+            stopVoiceBtn.addEventListener("click", stopVoiceInput);
+        }
+    } catch (e) {
+        console.warn("Could not initialize SpeechRecognition:", e);
+    }
+}
+
+function startVoiceInput() {
+    if (!speechRecognizer) {
+        alert("Web Speech API is not supported in this browser. Please use Google Chrome or Microsoft Edge.");
+        return;
+    }
+    hideElement(queryError);
+    try {
+        speechRecognizer.start();
+    } catch (err) {
+        console.warn("Speech recognition already active or error:", err);
+    }
+}
+
+function stopVoiceInput() {
+    isRecording = false;
+    if (voiceInputBtn) voiceInputBtn.classList.remove("recording");
+    if (voiceStatusBar) hideElement(voiceStatusBar);
+    if (speechRecognizer) {
+        try { speechRecognizer.stop(); } catch (e) {}
+    }
+}
+
+function handleTTS(btn) {
+    if (!window.speechSynthesis) {
+        alert("Text-to-Speech (Web Speech API) is not supported in this browser.");
+        return;
+    }
+
+    // If currently speaking, stop
+    if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        document.querySelectorAll(".btn-tts").forEach(b => {
+            b.classList.remove("speaking");
+            const lbl = b.querySelector(".tts-label");
+            if (lbl) lbl.textContent = "Listen";
+        });
+        return;
+    }
+
+    // Locate response text in parent card
+    const card = btn.closest(".msg-assistant-card");
+    if (!card) return;
+    const body = card.querySelector(".msg-answer-body");
+    if (!body) return;
+    const textToSpeak = body.textContent.trim();
+    if (!textToSpeak) return;
+
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.lang = "en-US";
+
+    btn.classList.add("speaking");
+    const lbl = btn.querySelector(".tts-label");
+    if (lbl) lbl.textContent = "Stop";
+
+    utterance.onend = () => {
+        btn.classList.remove("speaking");
+        if (lbl) lbl.textContent = "Listen";
+    };
+
+    utterance.onerror = () => {
+        btn.classList.remove("speaking");
+        if (lbl) lbl.textContent = "Listen";
+    };
+
+    window.speechSynthesis.speak(utterance);
+}
+

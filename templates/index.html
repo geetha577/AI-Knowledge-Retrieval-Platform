@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI-Based Knowledge Retrieval Platform</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
 
@@ -12,11 +15,21 @@
 <header class="site-header">
     <div class="header-inner">
         <div class="header-text">
-            <h1 class="site-title">AI-Based Knowledge Retrieval Platform</h1>
-            <p class="site-subtitle">Multi-Agent Query Resolution &amp; Knowledge Retrieval Platform</p>
+            <div class="logo-group">
+                <div class="logo-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="site-title">AI-Based Knowledge Retrieval Platform</h1>
+                    <p class="site-subtitle">Multi-Agent Query Resolution System &middot; Milestone 3</p>
+                </div>
+            </div>
         </div>
         <div class="header-status" id="health-badge">
-            <span class="badge badge-ready">System Ready</span>
+            <span class="badge badge-ready"><span class="status-dot"></span> System Ready</span>
         </div>
     </div>
 </header>
@@ -26,9 +39,15 @@
 
     <!-- ===== LEFT PANEL: Knowledge Base ===== -->
     <aside class="left-panel">
-        <div class="panel-card">
+        <div class="panel-card sidebar-card">
             <div class="panel-header">
-                <h2 class="panel-title">Knowledge Base</h2>
+                <div class="panel-title-group">
+                    <svg class="panel-header-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                    </svg>
+                    <h2 class="panel-title">Knowledge Base</h2>
+                </div>
                 <span id="chunk-count-badge" class="badge badge-info" style="display:none;"></span>
             </div>
 
@@ -36,15 +55,15 @@
             <div id="drop-zone" class="drop-zone">
                 <div class="drop-zone-inner">
                     <div class="drop-icon">
-                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                             <polyline points="17 8 12 3 7 8"/>
                             <line x1="12" y1="3" x2="12" y2="15"/>
                         </svg>
                     </div>
-                    <p class="drop-text">Drag and drop a file here</p>
+                    <p class="drop-text">Drag and drop documents here</p>
                     <p class="drop-subtext">or</p>
-                    <label class="btn btn-primary" for="file-input">Choose File</label>
+                    <label class="btn btn-primary btn-sm" for="file-input">Browse File</label>
                     <input type="file" id="file-input" accept=".pdf,.docx,.txt,.csv" style="display:none;">
                 </div>
             </div>
@@ -59,7 +78,7 @@
 
             <!-- Upload Progress -->
             <div id="upload-progress-area" style="display:none;">
-                <div class="progress-label" id="upload-status-label">Uploading...</div>
+                <div class="progress-label" id="upload-status-label">Indexing chunks...</div>
                 <div class="progress-bar-track">
                     <div class="progress-bar-fill" id="upload-progress-bar"></div>
                 </div>
@@ -71,145 +90,152 @@
             <!-- Indexed Documents -->
             <div class="doc-list-header">
                 <h3 class="section-label">Indexed Documents</h3>
-                <button class="btn-link" id="refresh-docs-btn" title="Refresh">Refresh</button>
+                <button class="btn-link" id="refresh-docs-btn" title="Refresh list">Refresh</button>
             </div>
             <div id="documents-list" class="documents-list">
                 <p class="empty-state">No documents indexed yet.</p>
             </div>
 
             <!-- Sample Docs -->
-            <div style="margin-top: 1.2rem;">
-                <h3 class="section-label">Sample Documents</h3>
-                <p class="hint-text">Pre-built demo data for instant demonstration:</p>
+            <div class="sample-docs-section">
+                <h3 class="section-label">Sample Knowledge Bases</h3>
+                <p class="hint-text">Load pre-built multi-domain test data:</p>
                 <div id="sample-docs-list" class="sample-docs-grid"></div>
             </div>
 
-            <!-- Reset -->
-            <div style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
-                <button class="btn btn-danger-outline" id="reset-btn">Clear Knowledge Base</button>
+            <!-- Reset Knowledge Base -->
+            <div class="sidebar-reset-box">
+                <button class="btn btn-danger-outline btn-sm w-full" id="reset-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    Clear Knowledge Base
+                </button>
             </div>
         </div>
     </aside>
 
-    <!-- ===== RIGHT PANEL: Query & Results ===== -->
+    <!-- ===== RIGHT PANEL: Conversational Query Assistant ===== -->
     <section class="right-panel">
+        <div class="chat-container">
 
-        <!-- Query Input -->
-        <div class="panel-card">
-            <h2 class="panel-title">Ask a Question</h2>
-            <p class="panel-subtitle">What would you like to know from your uploaded documents?</p>
-            <div class="query-input-group">
-                <textarea
-                    id="query-input"
-                    class="query-textarea"
-                    rows="3"
-                    placeholder="e.g. What is virtual memory? How does paging work?"></textarea>
-                <div class="query-action-row" style="justify-content: flex-end;">
-                    <button class="btn btn-primary btn-ask" id="ask-btn">Ask Question</button>
+            <!-- Chat Header -->
+            <div class="chat-header-bar">
+                <div class="chat-header-info">
+                    <h2 class="chat-header-title">Query Resolution Assistant</h2>
+                    <span class="chat-header-subtitle">Multi-agent grounded retrieval with ambiguity clarification</span>
                 </div>
-            </div>
-            <div id="query-error" class="alert alert-error" style="display:none;"></div>
-        </div>
-
-        <!-- Query Status -->
-        <div id="query-status-area" style="display:none;">
-            <div class="panel-card status-card">
-                <div class="pipeline-steps" id="pipeline-steps"></div>
-            </div>
-        </div>
-
-        <!-- Answer Card -->
-        <div id="answer-area" style="display:none;">
-            <div class="panel-card answer-card">
-                <div class="answer-header">
-                    <div>
-                        <h2 class="panel-title" style="margin: 0;">Answer</h2>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span id="query-type-badge" class="badge" style="display:none;"></span>
-                        <span id="confidence-badge" class="badge"></span>
-                    </div>
-                </div>
-                <div id="answer-text" class="answer-text"></div>
-            </div>
-        </div>
-
-
-        <!-- Sources Section -->
-        <div id="sources-area" style="display:none;">
-            <div class="panel-card">
-                <h2 class="panel-title">Sources Used</h2>
-                <p class="hint-text">Retrieved document sections that informed this answer. Click to expand chunk.</p>
-                <div id="sources-list" class="sources-list"></div>
-            </div>
-        </div>
-
-        <!-- Retrieval Details (Explainability Mode) -->
-        <div id="debug-area" style="display:none;">
-            <div class="panel-card debug-card">
-                <button class="debug-toggle-btn" id="debug-toggle-btn">
-                    <span class="toggle-icon" id="debug-toggle-icon">+</span>
-                    Retrieval Details (Explainability Mode)
+                <button class="btn btn-ghost btn-sm" id="clear-chat-btn" title="Clear conversation history">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                    Clear Chat
                 </button>
-                <div id="debug-content" class="debug-content" style="display:none;">
-                    <p class="hint-text" style="margin-bottom:1rem;">
-                        This panel shows the exact RAG pipeline execution — demonstrating that real retrieval and generation are occurring.
-                    </p>
-                    <div class="pipeline-diagram">
+            </div>
 
-                        <div class="pipeline-step-block">
-                            <div class="step-label">1. User Query</div>
-                            <div class="step-value" id="dbg-query"></div>
+            <!-- Conversation Stream -->
+            <div class="chat-stream" id="chat-stream">
+
+                <!-- Empty State (Shown initially) -->
+                <div class="empty-chat-state" id="empty-chat-state">
+                    <div class="empty-state-hero">
+                        <div class="hero-icon-bubble">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                            </svg>
                         </div>
-                        <div class="pipeline-arrow">&#8595;</div>
+                        <h3 class="hero-title">Ask questions about your knowledge base</h3>
+                        <p class="hero-desc">
+                            The multi-agent system analyzes your query intent, asks for clarification if your query is ambiguous, and extracts grounded answers with transparent citations.
+                        </p>
+                    </div>
 
-                        <div class="pipeline-step-block">
-                            <div class="step-label">2. Query Embedding Generated</div>
-                            <div class="step-value" id="dbg-embedding"></div>
-                        </div>
-                        <div class="pipeline-arrow">&#8595;</div>
+                    <!-- Domain Chips -->
+                    <div class="domain-chips-wrapper">
+                        <span class="domain-chip"><span class="dot os"></span> Operating Systems</span>
+                        <span class="domain-chip"><span class="dot ai"></span> Artificial Intelligence</span>
+                        <span class="domain-chip"><span class="dot sec"></span> Cybersecurity</span>
+                        <span class="domain-chip"><span class="dot csv"></span> Tabular Student Data</span>
+                    </div>
 
-                        <div class="pipeline-step-block">
-                            <div class="step-label">3. All Retrieved Chunks (before threshold filter)</div>
-                            <div class="step-value" id="dbg-all-chunks"></div>
-                        </div>
-                        <div class="pipeline-arrow">&#8595;</div>
-
-                        <div class="pipeline-step-block">
-                            <div class="step-label">4. Similarity Scores</div>
-                            <div class="step-value" id="dbg-scores"></div>
-                        </div>
-                        <div class="pipeline-arrow">&#8595;</div>
-
-                        <div class="pipeline-step-block">
-                            <div class="step-label">5. Selected Context (chunks above threshold)</div>
-                            <div class="step-value" id="dbg-selected"></div>
-                        </div>
-                        <div class="pipeline-arrow">&#8595;</div>
-
-                        <div class="pipeline-step-block">
-                            <div class="step-label">6. Generator Mode</div>
-                            <div class="step-value" id="dbg-generator"></div>
-                        </div>
-                        <div class="pipeline-arrow">&#8595;</div>
-
-                        <div class="pipeline-step-block step-block-final">
-                            <div class="step-label">7. Final Answer</div>
-                            <div class="step-value" id="dbg-final-answer"></div>
-                        </div>
-
+                    <!-- Suggested Prompts Grid -->
+                    <div class="suggested-prompts-grid">
+                        <button class="prompt-card" data-query="What is virtual memory?">
+                            <div class="prompt-type badge-factual">Factual Query</div>
+                            <div class="prompt-text">"What is virtual memory and how does paging work?"</div>
+                        </button>
+                        <button class="prompt-card" data-query="How do I prevent phishing attacks?">
+                            <div class="prompt-type badge-procedural">Procedural Query</div>
+                            <div class="prompt-text">"How do I prevent phishing attacks?"</div>
+                        </button>
+                        <button class="prompt-card" data-query="What is the difference between RAM and ROM?">
+                            <div class="prompt-type badge-comparative">Comparative Query</div>
+                            <div class="prompt-text">"What is the difference between RAM and ROM?"</div>
+                        </button>
+                        <button class="prompt-card" data-query="What is the application process?">
+                            <div class="prompt-type badge-ambiguous">Ambiguous Query (Clarification)</div>
+                            <div class="prompt-text">"What is the application process?"</div>
+                        </button>
                     </div>
                 </div>
-            </div>
-        </div>
 
+            </div>
+
+            <!-- Live Agent Processing Indicator -->
+            <div id="live-progress-area" class="live-progress-bar" style="display:none;">
+                <div class="progress-spinner"></div>
+                <div class="progress-steps-trail" id="progress-steps-trail"></div>
+            </div>
+
+            <!-- Query Input Bar (Sticky at bottom) -->
+            <div class="chat-input-wrapper">
+                <div id="active-session-indicator" class="active-session-banner" style="display:none;">
+                    <span class="session-dot"></span>
+                    <span id="session-text" class="session-text">Clarification in progress</span>
+                    <button class="session-cancel-btn" id="cancel-session-btn" title="Cancel clarification and ask a new question">&times;</button>
+                </div>
+                <div class="chat-input-box">
+                    <textarea
+                        id="query-input"
+                        class="chat-textarea"
+                        rows="1"
+                        placeholder="Ask a question or speak your query... (Press Enter to send)"></textarea>
+                    <button type="button" class="btn btn-voice" id="voice-input-btn" title="Speak your query (Web Speech API)">
+                        <svg class="mic-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                            <line x1="12" y1="19" x2="12" y2="23"/>
+                            <line x1="8" y1="23" x2="16" y2="23"/>
+                        </svg>
+                    </button>
+                    <button class="btn btn-primary btn-send" id="ask-btn" title="Send query (Enter)">
+                        <span class="btn-text">Ask</span>
+                        <svg class="send-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"/>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="voice-status-bar" class="voice-status-bar" style="display:none;">
+                    <span class="voice-recording-dot"></span>
+                    <span id="voice-status-text">Listening... Speak now</span>
+                    <button type="button" class="voice-cancel-link" id="stop-voice-btn">Stop</button>
+                </div>
+                <div id="query-error" class="alert alert-error input-alert" style="display:none;"></div>
+                <div class="input-shortcuts-hint">
+                    <span><strong>Enter</strong> to send &middot; <strong>Shift + Enter</strong> for new line &middot; <strong>🎤 Mic</strong> to speak</span>
+                </div>
+            </div>
+
+        </div>
     </section>
 </main>
 
 <!-- ========= FOOTER ========= -->
 <footer class="site-footer">
-    <p>AI-Based Knowledge Retrieval Platform &mdash; Milestone 2: Multi-Agent Query Resolution &mdash; Virtual Internship Project</p>
-    <p class="footer-tech">Built with Flask &middot; FAISS &middot; Sentence Transformers &middot; Multi-Agent Orchestrator &middot; Python</p>
+    <p>AI-Based Knowledge Retrieval Platform &mdash; Milestone 3: Clarification &amp; Multi-Agent Resolution &mdash; Virtual Internship Project</p>
+    <p class="footer-tech">Built with Python 3.11 &middot; Flask &middot; FAISS &middot; Sentence Transformers &middot; Multi-Agent Architecture</p>
 </footer>
 
 <script src="/static/script.js"></script>

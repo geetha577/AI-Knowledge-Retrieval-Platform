@@ -33,6 +33,8 @@ from backend.generator import ResponseGenerator
 from backend.query_understanding_agent import QueryUnderstandingAgent
 from backend.retrieval_agent import RetrievalAgent
 from backend.response_generation_agent import ResponseGenerationAgent
+from backend.clarification_agent import ClarificationAgent
+from backend.conversation_manager import ConversationManager
 from backend.orchestrator import MultiAgentOrchestrator
 
 # Create Flask application
@@ -60,14 +62,18 @@ retriever = KnowledgeRetriever(
 )
 generator = ResponseGenerator()
 
-# Milestone 2 Multi-Agent Architecture
+# Milestone 2 & 3 Multi-Agent Architecture
 query_understanding_agent = QueryUnderstandingAgent()
 retrieval_agent = RetrievalAgent(retriever=retriever)
 response_generation_agent = ResponseGenerationAgent(generator=generator)
+clarification_agent = ClarificationAgent()
+conversation_manager = ConversationManager()
 orchestrator = MultiAgentOrchestrator(
     query_understanding_agent=query_understanding_agent,
     retrieval_agent=retrieval_agent,
     response_generation_agent=response_generation_agent,
+    clarification_agent=clarification_agent,
+    conversation_manager=conversation_manager,
 )
 
 
@@ -90,7 +96,7 @@ def health_check():
     """System health check and vector database status."""
     return jsonify({
         "status": "healthy",
-        "milestone": "Milestone 2 - Multi-Agent Architecture",
+        "milestone": "Milestone 2 / Milestone 3 - Multi-Agent Architecture, Memory, Voice & Transparency",
         "total_documents": len(vector_store.get_indexed_documents()),
         "total_chunks": vector_store.total_chunks,
         "embedding_model": embedding_engine.model_name,
@@ -98,6 +104,8 @@ def health_check():
         "generator_mode": generator.provider,
         "agents": [
             "QueryUnderstandingAgent",
+            "ClarificationAgent",
+            "ConversationMemoryAgent",
             "RetrievalAgent",
             "ResponseGenerationAgent",
             "MultiAgentOrchestrator",
@@ -183,27 +191,41 @@ def upload_document():
 @app.route("/query", methods=["POST"])
 def query_knowledge_base():
     """
-    Accepts user question, passes through Multi-Agent Orchestrator:
-    Query Understanding Agent -> Retrieval Agent -> Response Generation Agent,
-    and returns answer, confidence, sources, query_type, and pipeline stages.
+    Accepts user question or clarification response, passes through Multi-Agent Orchestrator:
+    Query Understanding Agent -> (Clarification Agent if ambiguous) -> Retrieval Agent -> Response Generation Agent,
+    and returns answer, confidence, sources, query_type, session_id, and pipeline stages.
     """
     data = request.get_json(silent=True) or {}
-    question = data.get("question") or data.get("query") or ""
+    question = data.get("question") or data.get("query") or data.get("clarification") or ""
     question = question.strip()
+    session_id = data.get("session_id")
+    conv_id = data.get("conv_id")
+    is_clarification = data.get("is_clarification", False) or bool(session_id and data.get("clarification"))
 
     if not question:
-        return jsonify({"error": "Please enter a non-empty question."}), 400
+        return jsonify({"error": "Please enter a non-empty question or clarification."}), 400
 
     if vector_store.total_chunks == 0:
         return jsonify({
             "error": "The knowledge base is currently empty. Please upload at least one document first."
         }), 400
 
-    print(f"\n[QUERY] Processing question via Multi-Agent Orchestrator: '{question}'")
+    # Ensure conv_id exists
+    if not conv_id:
+        conv_id = conversation_manager.get_or_create_memory().conv_id
+
+    print(f"\n[QUERY] Processing query via Multi-Agent Orchestrator: '{question}' (Session: {session_id}, Conv: {conv_id})")
 
     try:
         # Step 1: Execute multi-agent orchestration pipeline
-        result = orchestrator.process_query(question)
+        indexed_docs = vector_store.get_indexed_documents()
+        result = orchestrator.process_query(
+            query=question,
+            session_id=session_id,
+            is_clarification=is_clarification,
+            available_docs=indexed_docs,
+            conv_id=conv_id,
+        )
 
         # Step 2: Format explainability details for UI
         debug_payload = result.get("debug_details", {})
@@ -221,8 +243,11 @@ def query_knowledge_base():
                 "relevance": r.get("relevance", "Medium"),
             })
 
+        effective_query = result.get("query", question)
         debug_payload.update({
-            "query": question,
+            "query": effective_query,
+            "original_query": result.get("original_query", question),
+            "resolved_query": result.get("resolved_query"),
             "query_type": result.get("query_type"),
             "classification_confidence": result.get("classification_confidence"),
             "route": result.get("route"),
@@ -235,16 +260,24 @@ def query_knowledge_base():
             "query_embedding_shape": [1, embedding_engine.dimension],
             "prompt_used": gen_debug.get("prompt_used"),
             "pipeline_stages": result.get("pipeline_stages", []),
+            "session_id": result.get("session_id"),
         })
 
         return jsonify({
+            "status": result.get("status", "answered"),
+            "query": effective_query,
+            "original_query": result.get("original_query", question),
+            "resolved_query": result.get("resolved_query"),
             "answer": result["answer"],
+            "clarification_question": result.get("clarification_question"),
+            "suggested_options": result.get("suggested_options", []),
+            "session_id": result.get("session_id"),
+            "conv_id": result.get("conv_id", conv_id),
             "confidence": result["confidence"],
             "sources": result["sources"],
             "query_type": result["query_type"],
             "classification_confidence": result["classification_confidence"],
             "route": result["route"],
-            "status": result["status"],
             "pipeline_stages": result["pipeline_stages"],
             "debug_details": debug_payload,
         }), 200
@@ -311,9 +344,10 @@ def reset_knowledge_base():
     """Utility endpoint to clear the vector index and start fresh."""
     try:
         vector_store.clear()
+        conversation_manager.clear_all()
         return jsonify({
             "success": True,
-            "message": "Knowledge base and vector index successfully cleared."
+            "message": "Knowledge base, vector index, and active clarification sessions successfully cleared."
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500

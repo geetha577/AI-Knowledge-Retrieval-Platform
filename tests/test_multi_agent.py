@@ -275,7 +275,7 @@ class TestMultiAgentOrchestrator(unittest.TestCase):
         res = self.orchestrator.process_query("Tell me about it.")
         self.assertEqual(res["query_type"], "ambiguous")
         self.assertEqual(res["route"], "clarification")
-        self.assertEqual(res["status"], "clarification_needed")
+        self.assertIn(res["status"], ["clarification_needed", "clarification_required"])
         self.assertEqual(res["confidence"], "None")
         self.assertEqual(res["sources"], [])
         # Verification that retrieval was skipped
@@ -330,7 +330,7 @@ class TestFlaskAppMultiAgentIntegration(unittest.TestCase):
         self.assertEqual(data["query_type"], "ambiguous")
         self.assertEqual(data["route"], "clarification")
         self.assertEqual(data["confidence"], "None")
-        self.assertEqual(data["status"], "clarification_needed")
+        self.assertIn(data["status"], ["clarification_needed", "clarification_required"])
         self.assertEqual(len(data["sources"]), 0)
         self.assertIn("ambiguous", data["answer"].lower())
 

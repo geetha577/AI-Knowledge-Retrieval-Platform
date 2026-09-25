@@ -25,6 +25,8 @@ from .query_understanding_agent import QueryUnderstandingAgent
 from .retrieval_agent import RetrievalAgent
 from .response_generation_agent import ResponseGenerationAgent
 from .orchestrator import MultiAgentOrchestrator
+from .clarification_agent import ClarificationAgent
+from .conversation_manager import ConversationManager
 
 __all__ = [
     "DocumentChunk",
@@ -40,4 +42,6 @@ __all__ = [
     "RetrievalAgent",
     "ResponseGenerationAgent",
     "MultiAgentOrchestrator",
+    "ClarificationAgent",
+    "ConversationManager",
 ]
