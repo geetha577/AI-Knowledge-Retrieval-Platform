@@ -86,20 +86,26 @@ class ConversationMemory:
             if re.search(rf"\b{re.escape(ref)}\b", q_lower):
                 return True
 
-        # Check for continuation phrases / dependent fragments
+        # Check for continuation phrases / dependent fragments (only if query doesn't specify a new substantive topic)
+        bare_continuation = ("why?", "why is that", "why so", "how so", "what else?", "and then?", "more details")
+        if any(q_lower == bc or q_lower.startswith(bc + " ") for bc in bare_continuation):
+            return True
+
         continuation_starters = (
-            "what about", "how about", "and ", "why", "how so", "more details",
-            "tell me more", "give more", "explain more", "what else", "also"
+            "what about", "how about", "tell me more about", "give more details about",
+            "explain more about"
         )
         if any(q_lower.startswith(cs) for cs in continuation_starters):
-            return True
+            # Only if it refers to prior context or pronoun
+            words = q_lower.split()
+            if len(words) <= 4 or any(w in self.REFERENCE_WORDS for w in words):
+                return True
 
         return False
 
     def resolve_followup(self, query: str) -> str:
         """
-        Enriches a follow-up query with prior context.
-        e.g. "How does paging relate to that?" -> adds context about virtual memory
+        Enriches a follow-up query with prior context when genuinely dependent.
         """
         if not self.has_memory():
             return query
@@ -109,13 +115,20 @@ class ConversationMemory:
         if not prior_topics:
             return query
 
-        q_lower = query.lower()
+        q_lower = query.lower().strip()
         main_topic = prior_topics[0]
 
-        # Replace pronouns with the most recent topic
+        # If query has its own explicit subject or topic, do NOT force prior context
+        query_words = set(re.findall(r"\b\w{3,}\b", q_lower))
+        stop_words = {"what", "when", "where", "which", "who", "whom", "why", "how", "does", "explain", "tell", "give", "more", "about", "this", "that"}
+        content_words = query_words - stop_words
+        if len(content_words) >= 2 and not any(w in q_lower for w in ["it", "that", "this"]):
+            return query
+
+        # Replace bare pronouns ("it", "that") if not part of a larger self-contained question
         has_pronoun = False
-        for pron in ["it", "this", "that", "them", "these", "those"]:
-            if re.search(rf"\b{pron}\b", q_lower):
+        for pron in ["it", "that"]:
+            if re.search(rf"\b{pron}\b", q_lower) and len(q_lower.split()) <= 6:
                 query = re.sub(
                     rf"\b{pron}\b",
                     main_topic,
@@ -127,13 +140,9 @@ class ConversationMemory:
         if has_pronoun:
             return query.strip()
 
-        # Continuation phrases like "what about paging?" -> "what about paging? (regarding virtual memory)"
-        continuation_starters = (
-            "what about", "how about", "and ", "why", "how so", "more details",
-            "tell me more", "give more", "explain more", "what else", "also"
-        )
-        if any(q_lower.startswith(cs) for cs in continuation_starters):
-            return f"{query.strip()} (regarding {main_topic})"
+        # Pure continuation questions like "why?", "tell me more"
+        if q_lower in ("why", "why?", "why is that", "why so", "tell me more", "explain more", "more details"):
+            return f"{query.strip()} regarding {main_topic}"
 
         return query
 

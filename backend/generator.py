@@ -152,15 +152,29 @@ class ResponseGenerator:
         return "general"
 
     def _is_slide_noise(self, text: str) -> bool:
-        """Filters out slide headers, professor names, page numbers, and presentation artifacts."""
-        lower = text.lower()
-        if re.search(r"\b(dr\.|professor|assistant professor|faculty|dept\.|department of|scope|vit\b|university)\b", lower):
+        """Filters out slide headers, professor names, page numbers, syllabus metadata, and presentation artifacts."""
+        lower = text.lower().strip()
+        # Syllabus, course administration, and outcome metadata
+        syllabus_patterns = [
+            r"\b(dr\.|professor|assistant professor|faculty|dept\.|department of|scope|vit\b|university)\b",
+            r"\b(co\d+|po\d+|peo\d+|course outcome|course code|version no|course title|credits?|lecture hours?)\b",
+            r"\b(mapping with po|program outcome|curriculum|syllabus|tpc \d+|assessment|evaluation scheme)\b",
+            r"\b(remarks:\s*types of|mini case study:|prerequisite)\b",
+            r"^(module\s*[-–]\s*\d+|unit\s*[-–]\s*\d+|chapter\s*[-–]\s*\d+|slide\s*\d+|page\s*\d+)\b",
+        ]
+        for pat in syllabus_patterns:
+            if re.search(pat, lower):
+                return True
+
+        # Unstructured table data or formula fragments
+        if "scalars represent" in lower or "vectors store" in lower or "weight matrix in a dense" in lower:
             return True
-        if re.search(r"^(module\s*[-–]\s*\d+|unit\s*[-–]\s*\d+|chapter\s*[-–]\s*\d+|slide\s*\d+|page\s*\d+)\b", lower):
+        if "size bedrooms price" in lower:
             return True
-        # Lines with only numbers or single words
+
+        # Pure numbers or single/double word headers
         words = text.split()
-        if len(words) < 4:
+        if len(words) < 5:
             return True
         return False
 
@@ -260,6 +274,13 @@ class ResponseGenerator:
             for s_idx, sentence in enumerate(sentences):
                 s_clean = sentence.strip()
                 s_clean = re.sub(r"^[#\-=*•]+\s*", "", s_clean).strip()
+
+                # Clean slide titles: e.g. 'Chapter 4: Virtual Memory Virtual memory is...' -> 'Virtual memory is...'
+                s_clean = re.sub(r"^chapter\s*\d+[:\s-]*[A-Za-z0-9\s]{0,25}?(?=[A-Z][a-z])", "", s_clean, flags=re.IGNORECASE).strip()
+                # Remove duplicated title phrases like 'Demand Paging Demand paging is...'
+                words = s_clean.split()
+                if len(words) >= 4 and " ".join(words[:2]).lower() == " ".join(words[2:4]).lower():
+                    s_clean = " ".join(words[2:])
 
                 if len(s_clean) < 18 or s_clean in seen_sentences:
                     continue
