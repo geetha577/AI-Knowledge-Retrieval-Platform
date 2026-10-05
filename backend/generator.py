@@ -185,16 +185,17 @@ class ResponseGenerator:
         lines = text.split("\n")
         for line in lines:
             line_str = line.strip()
-            # Match bullets or numbers like "1.", "1)", "-", "*", "•"
-            m = re.match(r"^(?:[\•\-\*\–\—]|\d+[\.\)])\s*(.+)", line_str)
+            # Match bullets or numbers like "1.", "1)", "-", "*", "•", "?", ""
+            m = re.match(r"^(?:[\•\-\*\–\—\?\]|\d+[\.\)])\s*(.+)", line_str)
             if m:
                 item = m.group(1).strip()
+                item = re.sub(r"^[\?\\•\-\*\–\—\s]+", "", item).strip()
                 if len(item) > 10 and not self._is_slide_noise(item):
                     items.append(item)
             elif ":" in line_str and len(line_str) < 120 and not line_str.startswith("http"):
                 # Subheaders like "Narrow AI: Designed for specific tasks"
                 parts = line_str.split(":", 1)
-                header = parts[0].strip()
+                header = re.sub(r"^[\?\\•\-\*\–\—\s]+", "", parts[0]).strip()
                 body = parts[1].strip()
                 if len(header) < 40 and len(body) > 10 and not self._is_slide_noise(line_str):
                     items.append(f"**{header}:** {body}")
@@ -222,13 +223,15 @@ class ResponseGenerator:
         wants_list = any(w in q_lower for w in ["types", "kinds", "categories", "advantages", "benefits", "features", "list", "disadvantages", "steps"])
         wants_comparison = any(w in q_lower for w in ["difference", "compare", "versus", " vs ", " vs."])
         wants_procedural = any(w in q_lower for w in ["how to", "how do", "how does", "steps to", "process of"])
+        wants_reason = any(w in q_lower for w in ["why", "purpose", "importance", "need for", "used for", "use case", "benefit", "why is", "why do"])
+        wants_summary = any(w in q_lower for w in ["summary", "summarize", "overview", "briefly describe", "in brief"])
 
-        query_words = set(re.findall(r"\b\w{3,}\b", q_lower))
+        query_words = set(re.findall(r"\b\w{2,}\b", q_lower))
         stop_words = {
             "what", "when", "where", "which", "who", "whom", "whose", "why", "how",
             "does", "explain", "tell", "describe", "discuss", "compare", "between",
             "about", "with", "from", "that", "this", "these", "those", "have", "were",
-            "could", "would", "should", "then", "also", "some", "give", "types"
+            "could", "would", "should", "then", "also", "some", "give", "types", "summary"
         }
         meaningful_words = query_words - stop_words
 
@@ -263,7 +266,7 @@ class ResponseGenerator:
                 continue
 
             # Extract any bullet/item points directly from chunk formatting
-            if wants_list or wants_procedural:
+            if wants_list or wants_procedural or wants_reason or wants_summary:
                 items = self._extract_list_items(text)
                 for item in items:
                     if item not in extracted_list_items:
@@ -273,7 +276,7 @@ class ResponseGenerator:
             sentences = re.split(r"(?<=[.!?\n])\s+", text)
             for s_idx, sentence in enumerate(sentences):
                 s_clean = sentence.strip()
-                s_clean = re.sub(r"^[#\-=*•]+\s*", "", s_clean).strip()
+                s_clean = re.sub(r"^[#\-=*•\?\–\—\s]+", "", s_clean).strip()
 
                 # Clean slide titles: e.g. 'Chapter 4: Virtual Memory Virtual memory is...' -> 'Virtual memory is...'
                 s_clean = re.sub(r"^chapter\s*\d+[:\s-]*[A-Za-z0-9\s]{0,25}?(?=[A-Z][a-z])", "", s_clean, flags=re.IGNORECASE).strip()
@@ -287,7 +290,7 @@ class ResponseGenerator:
                 if self._is_slide_noise(s_clean):
                     continue
 
-                s_words = set(re.findall(r"\b\w{3,}\b", s_clean.lower()))
+                s_words = set(re.findall(r"\b\w{2,}\b", s_clean.lower()))
                 overlap = len(meaningful_words.intersection(s_words))
 
                 base_score = overlap * 2.5
@@ -303,6 +306,10 @@ class ResponseGenerator:
                     base_score += 2.5
                 if wants_comparison and any(k in s_lower for k in ["while", "whereas", "difference", "contrast", "in contrast", "unlike"]):
                     base_score += 3.0
+                if wants_reason and any(k in s_lower for k in ["used for", "allows", "enables", "provides", "applications include", "aims to", "purpose", "benefit", "helps", "widely used", "learn from data"]):
+                    base_score += 4.0
+                if wants_summary and any(k in s_lower for k in ["provides a comprehensive", "overview of", "is the simulation of", "is a memory management", "critical responsibilities", "foundations of"]):
+                    base_score += 3.5
 
                 if overlap > 0 or chunk_rank == 0:
                     candidate_sentences.append((base_score, s_clean, chunk_rank))
@@ -317,10 +324,10 @@ class ResponseGenerator:
         # Select top non-redundant definition/prose sentences
         selected_sentences: List[str] = []
         for _, s_text, _ in candidate_sentences:
-            words_curr = set(re.findall(r"\b\w{3,}\b", s_text.lower()))
+            words_curr = set(re.findall(r"\b\w{2,}\b", s_text.lower()))
             is_redundant = False
             for prev in selected_sentences:
-                words_prev = set(re.findall(r"\b\w{3,}\b", prev.lower()))
+                words_prev = set(re.findall(r"\b\w{2,}\b", prev.lower()))
                 if len(words_curr) > 0 and len(words_curr.intersection(words_prev)) / len(words_curr) > 0.75:
                     is_redundant = True
                     break
@@ -330,10 +337,29 @@ class ResponseGenerator:
                 break
 
         # Step B: Structured Output Construction
-        # Subcase 2.1: Compound Query (Definition + Types/List)
+        # Subcase 2.1: Reason / Purpose Query ("Why [Topic]?")
+        if wants_reason and selected_sentences:
+            lead = selected_sentences[0]
+            reason_pts = [s for s in selected_sentences[1:] if any(k in s.lower() for k in ["applications", "used in", "include", "enables", "allows", "learn", "predict", "recognition"])]
+            if not reason_pts and extracted_list_items:
+                reason_pts = extracted_list_items[:4]
+            if reason_pts:
+                return f"{lead}\n\n**Key Applications & Importance:**\n" + "\n".join(f"- {pt}" for pt in reason_pts)
+            return " ".join(selected_sentences[:3])
+
+        # Subcase 2.2: Summary Query ("Give a summary of [Topic]")
+        if wants_summary and selected_sentences:
+            lead = selected_sentences[0]
+            summary_pts = [s for s in selected_sentences[1:] if len(s) < 180]
+            if not summary_pts and extracted_list_items:
+                summary_pts = extracted_list_items[:4]
+            if summary_pts:
+                return f"{lead}\n\n**Key Highlights:**\n" + "\n".join(f"- {pt}" for pt in summary_pts)
+            return " ".join(selected_sentences[:3])
+
+        # Subcase 2.3: Compound Query (Definition + Types/List)
         if (wants_definition and wants_list) or (wants_list and len(extracted_list_items) >= 2):
             definition_part = selected_sentences[0] if selected_sentences else ""
-            # Ensure definition part isn't already a list header
             if definition_part.endswith(":"):
                 definition_part = definition_part[:-1] + "."
 
@@ -349,15 +375,15 @@ class ResponseGenerator:
                 list_title = "Key Types / Categories:" if "type" in q_lower or "kind" in q_lower else (
                     "Key Advantages:" if "advantage" in q_lower or "benefit" in q_lower else "Key Points:"
                 )
-                bullet_lines = [f"• {item if item.startswith('**') or item.startswith('•') else item}" for item in items_to_show]
+                bullet_lines = [f"- {item if item.startswith('**') or item.startswith('-') else item}" for item in items_to_show]
                 parts.append(f"{list_title}\n" + "\n".join(bullet_lines))
 
             if parts:
                 return "\n\n".join(parts)
 
-        # Subcase 2.2: Pure List or Procedural
+        # Subcase 2.4: Pure List or Procedural
         if (wants_list or q_type == "list") and len(extracted_list_items) >= 2:
-            return "\n".join(f"• {it}" for it in extracted_list_items[:5])
+            return "\n".join(f"- {it}" for it in extracted_list_items[:5])
 
         if wants_procedural or q_type == "procedural":
             if extracted_list_items:

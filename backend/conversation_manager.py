@@ -118,8 +118,13 @@ class ConversationMemory:
         q_lower = query.lower().strip()
         main_topic = prior_topics[0]
 
+        # If query has phrases like "this topic", "that topic", "the topic"
+        if re.search(r"\b(?:this|that|the)\s+topic\b", q_lower):
+            query = re.sub(r"\b(?:this|that|the)\s+topic\b", main_topic, query, flags=re.IGNORECASE)
+            return query.strip()
+
         # If query has its own explicit subject or topic, do NOT force prior context
-        query_words = set(re.findall(r"\b\w{3,}\b", q_lower))
+        query_words = set(re.findall(r"\b\w{2,}\b", q_lower))
         stop_words = {"what", "when", "where", "which", "who", "whom", "why", "how", "does", "explain", "tell", "give", "more", "about", "this", "that"}
         content_words = query_words - stop_words
         if len(content_words) >= 2 and not any(w in q_lower for w in ["it", "that", "this"]):
@@ -178,16 +183,19 @@ class ConversationMemory:
         return unique[:5]
 
     def _extract_topics(self, text: str) -> List[str]:
-        """Lightweight keyword extraction from a query."""
+        """Lightweight keyword extraction from a query, preserving key technical acronyms."""
         stopwords = {
             "what", "how", "why", "when", "where", "who", "which",
             "is", "are", "was", "were", "do", "does", "did",
             "the", "a", "an", "of", "in", "for", "to", "and", "or",
             "can", "could", "should", "would", "tell", "me", "about",
             "explain", "describe", "give", "difference", "between",
+            "summary", "summarize", "overview", "details", "detail",
+            "topic", "information", "notes", "point", "points", "concept",
         }
+        known_acronyms = {"ai", "os", "ml", "dl", "ip", "db", "ui", "tcp", "udp", "lan", "wan", "ann", "cnn", "rnn", "rag"}
         clean_text = re.sub(r"[^\w\s]", " ", text.lower())
-        words = [w for w in clean_text.split() if w not in stopwords and len(w) >= 3]
+        words = [w for w in clean_text.split() if w not in stopwords and (len(w) >= 3 or w in known_acronyms)]
         topics = []
         if len(words) >= 2:
             topics.append(" ".join(words[:2]))
