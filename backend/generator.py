@@ -431,52 +431,73 @@ class ResponseGenerator:
             return None
 
     def _call_gemini(self, query: str, context: str) -> Optional[str]:
-        """Calls Google Gemini API if key exists."""
-        try:
-            import urllib.request
-            import json
+        """Calls Google Gemini API with fallback across current models."""
+        import urllib.request
+        import json
 
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={self.gemini_key}"
-            prompt = f"{SYSTEM_PROMPT}\n\nRetrieved Context:\n{context}\n\nUser Question:\n{query}"
+        models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+        prompt = (
+            f"{SYSTEM_PROMPT}\n\n"
+            f"You must use the retrieved context below to answer the user's question accurately, "
+            f"comprehensively, and clearly. Synthesize the facts in your own words with proper structure.\n\n"
+            f"--- RETRIEVED CONTEXT ---\n{context}\n\n"
+            f"--- USER QUESTION ---\n{query}\n\n"
+            f"--- ANSWER ---"
+        )
 
-            req = urllib.request.Request(
-                url,
-                headers={"Content-Type": "application/json"},
-                data=json.dumps({
-                    "contents": [{"parts": [{"text": prompt}]}]
-                }).encode("utf-8"),
-            )
-            with urllib.request.urlopen(req, timeout=15) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
-                return res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except Exception as e:
-            print(f"[GENERATION] Gemini API call failed ({e}). Falling back to local synthesis.")
-            return None
+        for model_name in models:
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={self.gemini_key}"
+                req = urllib.request.Request(
+                    url,
+                    headers={"Content-Type": "application/json"},
+                    data=json.dumps({
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 800}
+                    }).encode("utf-8"),
+                )
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    res_data = json.loads(response.read().decode("utf-8"))
+                    answer = res_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    print(f"[GENERATION] Successfully generated response with Gemini ({model_name}).")
+                    return answer
+            except Exception as e:
+                print(f"[GENERATION] Gemini attempt with {model_name} failed: {e}")
+
+        print("[GENERATION] All Gemini models failed. Falling back to local synthesis.")
+        return None
 
     def _call_groq(self, query: str, context: str) -> Optional[str]:
-        """Calls Groq API if key exists."""
-        try:
-            import urllib.request
-            import json
+        """Calls Groq API with fallback across current Llama models."""
+        import urllib.request
+        import json
 
-            req = urllib.request.Request(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.groq_key}",
-                },
-                data=json.dumps({
-                    "model": "llama-3.1-8b-instant",
-                    "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
-                    ],
-                    "temperature": 0.2,
-                }).encode("utf-8"),
-            )
-            with urllib.request.urlopen(req, timeout=15) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
-                return res_data["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            print(f"[GENERATION] Groq API call failed ({e}). Falling back to local synthesis.")
-            return None
+        models = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
+        for model_name in models:
+            try:
+                req = urllib.request.Request(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self.groq_key}",
+                    },
+                    data=json.dumps({
+                        "model": model_name,
+                        "messages": [
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
+                        ],
+                        "temperature": 0.2,
+                        "max_tokens": 800,
+                    }).encode("utf-8"),
+                )
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    res_data = json.loads(response.read().decode("utf-8"))
+                    answer = res_data["choices"][0]["message"]["content"].strip()
+                    print(f"[GENERATION] Successfully generated response with Groq ({model_name}).")
+                    return answer
+            except Exception as e:
+                print(f"[GENERATION] Groq attempt with {model_name} failed: {e}")
+
+        print("[GENERATION] Groq API call failed. Falling back to local synthesis.")
+        return None
