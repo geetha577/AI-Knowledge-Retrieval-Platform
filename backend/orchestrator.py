@@ -38,12 +38,15 @@ class MultiAgentOrchestrator:
         response_generation_agent: ResponseGenerationAgent,
         clarification_agent: Optional[ClarificationAgent] = None,
         conversation_manager: Optional[ConversationManager] = None,
+        analytics_engine: Optional[Any] = None,
     ):
         self.query_understanding_agent = query_understanding_agent
         self.retrieval_agent = retrieval_agent
         self.response_generation_agent = response_generation_agent
         self.clarification_agent = clarification_agent or ClarificationAgent()
         self.conversation_manager = conversation_manager or ConversationManager()
+        self.analytics_engine = analytics_engine
+
 
     def process_query(
         self,
@@ -247,7 +250,25 @@ class MultiAgentOrchestrator:
             })
 
             total_duration = round(time.time() - start_time, 4)
+
+            if getattr(self, "analytics_engine", None):
+                try:
+                    self.analytics_engine.record_query(
+                        query=original_query,
+                        query_type="ambiguous",
+                        route="clarification",
+                        confidence="None",
+                        status="clarification_required",
+                        duration_sec=total_duration,
+                        session_id=current_session_id,
+                        conv_id=conv_id,
+                        clarification_question=clarification_question,
+                    )
+                except Exception as e:
+                    print(f"[ANALYTICS] Telemetry error: {e}")
+
             return {
+
                 "query": effective_query,
                 "original_query": original_query,
                 "resolved_query": resolved_query,
@@ -390,7 +411,27 @@ class MultiAgentOrchestrator:
                 resolved_query=resolved_query,
             )
 
+        if getattr(self, "analytics_engine", None):
+            try:
+                self.analytics_engine.record_query(
+                    query=original_query,
+                    resolved_query=resolved_query,
+                    query_type=query_type,
+                    route=route,
+                    confidence=response_output.get("confidence", "None"),
+                    status=response_output.get("status", "success"),
+                    top_similarity_score=retrieval_output.get("retrieval_confidence", 0.0),
+                    retrieved_chunks_count=len(retrieval_output.get("results", [])),
+                    sources=response_output.get("sources", []),
+                    duration_sec=total_duration,
+                    session_id=session_id,
+                    conv_id=conv_id,
+                )
+            except Exception as e:
+                print(f"[ANALYTICS] Telemetry error: {e}")
+
         return {
+
             "query": effective_query,
             "original_query": original_query,
             "resolved_query": resolved_query,

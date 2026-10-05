@@ -24,12 +24,22 @@
                 </div>
                 <div>
                     <h1 class="site-title">AI-Based Knowledge Retrieval Platform</h1>
-                    <p class="site-subtitle">Multi-Agent Query Resolution System &middot; Milestone 3</p>
+                    <p class="site-subtitle">Multi-Agent Query Resolution System &middot; Milestone 4</p>
                 </div>
             </div>
         </div>
-        <div class="header-status" id="health-badge">
-            <span class="badge badge-ready"><span class="status-dot"></span> System Ready</span>
+        <div class="header-actions">
+            <button type="button" class="btn btn-analytics-toggle" id="open-analytics-btn" title="View Query Analytics & Knowledge Gaps">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="20" x2="18" y2="10"/>
+                    <line x1="12" y1="20" x2="12" y2="4"/>
+                    <line x1="6" y1="20" x2="6" y2="14"/>
+                </svg>
+                <span>Analytics &amp; Gaps</span>
+            </button>
+            <div class="header-status" id="health-badge">
+                <span class="badge badge-ready"><span class="status-dot"></span> System Ready</span>
+            </div>
         </div>
     </div>
 </header>
@@ -234,10 +244,200 @@
 
 <!-- ========= FOOTER ========= -->
 <footer class="site-footer">
-    <p>AI-Based Knowledge Retrieval Platform &mdash; Milestone 3: Clarification &amp; Multi-Agent Resolution &mdash; Virtual Internship Project</p>
-    <p class="footer-tech">Built with Python 3.11 &middot; Flask &middot; FAISS &middot; Sentence Transformers &middot; Multi-Agent Architecture</p>
+    <p>AI-Based Knowledge Retrieval Platform &mdash; Milestone 4: Query Analytics, Gap Detection &amp; Multi-Domain Resolution &mdash; Virtual Internship Project</p>
+    <p class="footer-tech">Built with Python 3.11 &middot; Flask &middot; FAISS &middot; Sentence Transformers &middot; Multi-Agent Architecture &middot; Analytics Engine</p>
 </footer>
+
+<!-- ========= ANALYTICS & KNOWLEDGE GAP MODAL ========= -->
+<div id="analytics-modal" class="modal-backdrop" style="display:none;">
+    <div class="modal-container analytics-modal-container">
+        <div class="modal-header">
+            <div class="modal-title-group">
+                <div class="modal-title-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="20" x2="18" y2="10"/>
+                        <line x1="12" y1="20" x2="12" y2="4"/>
+                        <line x1="6" y1="20" x2="6" y2="14"/>
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="modal-title">Query Analytics &amp; Knowledge Gap Detection</h2>
+                    <p class="modal-subtitle">Performance monitoring, resolution health, and knowledge base coverage insights</p>
+                </div>
+            </div>
+            <div class="modal-header-actions">
+                <a href="/analytics/export" id="export-analytics-btn" class="btn btn-secondary btn-sm" download="query_analytics_report.csv" title="Download Query Analytics CSV">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    <span>Export CSV</span>
+                </a>
+                <button type="button" id="clear-analytics-btn" class="btn btn-ghost btn-sm text-danger" title="Clear query history">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                    <span>Clear Logs</span>
+                </button>
+                <button type="button" id="close-analytics-btn" class="modal-close-btn" aria-label="Close modal">&times;</button>
+            </div>
+        </div>
+
+        <div class="modal-body analytics-modal-body">
+            <!-- KPI Metrics Strip -->
+            <div class="analytics-metrics-grid">
+                <div class="analytics-metric-card">
+                    <div class="metric-label">Total Queries</div>
+                    <div class="metric-value" id="metric-total-queries">0</div>
+                    <div class="metric-subtext" id="metric-queries-breakdown">0 answered &middot; 0 clarified</div>
+                </div>
+                <div class="analytics-metric-card">
+                    <div class="metric-label">Resolution Success Rate</div>
+                    <div class="metric-value" id="metric-success-rate">0%</div>
+                    <div class="metric-subtext" id="metric-success-subtext">Grounding &amp; answers</div>
+                </div>
+                <div class="analytics-metric-card">
+                    <div class="metric-label">Avg Similarity / Latency</div>
+                    <div class="metric-value" id="metric-avg-score">0.00 / 0.0s</div>
+                    <div class="metric-subtext">Vector search &amp; generation</div>
+                </div>
+                <div class="analytics-metric-card alert-card">
+                    <div class="metric-label">Identified Knowledge Gaps</div>
+                    <div class="metric-value" id="metric-gaps-count">0</div>
+                    <div class="metric-subtext text-warning" id="metric-gaps-subtext">Content opportunities detected</div>
+                </div>
+            </div>
+
+            <!-- Two-tab / Two-section view -->
+            <div class="analytics-tabs-header">
+                <button type="button" class="analytics-tab-btn active" data-tab="gaps-tab">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <span>Knowledge Gaps &amp; Coverage</span>
+                </button>
+                <button type="button" class="analytics-tab-btn" data-tab="logs-tab">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <polyline points="10 9 9 9 8 9"/>
+                    </svg>
+                    <span>Query History &amp; Audit Logs</span>
+                </button>
+            </div>
+
+            <!-- TAB 1: Gaps & Distribution -->
+            <div id="gaps-tab" class="analytics-tab-content active">
+                <div class="analytics-gaps-layout">
+                    <!-- Left: Knowledge Gaps List -->
+                    <div class="analytics-gaps-col">
+                        <div class="section-title-bar">
+                            <h3 class="analytics-section-title">Detected Knowledge Base Gaps</h3>
+                            <span class="badge badge-info" id="gaps-badge-count">0 Detected</span>
+                        </div>
+                        <p class="section-desc">The system clusters unanswered or low-confidence questions into actionable recommendations for document authors:</p>
+                        <div id="knowledge-gaps-list" class="knowledge-gaps-list">
+                            <div class="empty-analytics-msg">No knowledge gaps detected yet. Queries with low similarity or missing content will appear here automatically.</div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Coverage & Breakdown -->
+                    <div class="analytics-stats-col">
+                        <div class="section-title-bar">
+                            <h3 class="analytics-section-title">Query Types &amp; Confidence</h3>
+                        </div>
+                        <div class="distribution-card">
+                            <div class="dist-group-title">Query Intent Distribution</div>
+                            <div id="query-type-dist-bars" class="dist-bars-container">
+                                <!-- Generated by JS -->
+                            </div>
+                        </div>
+
+                        <div class="distribution-card">
+                            <div class="dist-group-title">Confidence Distribution</div>
+                            <div id="confidence-dist-bars" class="dist-bars-container">
+                                <!-- Generated by JS -->
+                            </div>
+                        </div>
+
+                        <div class="distribution-card">
+                            <div class="dist-group-title">Most Consulted Domains</div>
+                            <div id="top-domains-list" class="top-domains-list">
+                                <!-- Generated by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: Query Logs & Audit Trail -->
+            <div id="logs-tab" class="analytics-tab-content" style="display:none;">
+                <div class="logs-controls-bar">
+                    <div class="logs-filter-group">
+                        <label for="filter-status" class="filter-label">Status:</label>
+                        <select id="filter-status" class="form-select filter-select">
+                            <option value="all">All Statuses</option>
+                            <option value="answered">Answered</option>
+                            <option value="clarification_required">Clarification Required</option>
+                            <option value="no_results">No Results</option>
+                        </select>
+
+                        <label for="filter-confidence" class="filter-label">Confidence:</label>
+                        <select id="filter-confidence" class="form-select filter-select">
+                            <option value="all">All Confidence</option>
+                            <option value="High">High</option>
+                            <option value="Medium">Medium</option>
+                            <option value="Low">Low</option>
+                            <option value="None">None</option>
+                        </select>
+
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="filter-unanswered">
+                            <span>Unanswered only</span>
+                        </label>
+                    </div>
+
+                    <button type="button" id="refresh-analytics-btn" class="btn btn-secondary btn-sm">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        </svg>
+                        <span>Refresh</span>
+                    </button>
+                </div>
+
+                <div class="logs-table-container">
+                    <table class="logs-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Query</th>
+                                <th>Type</th>
+                                <th>Confidence</th>
+                                <th>Score / Chunks</th>
+                                <th>Status</th>
+                                <th>Sources</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-table-body">
+                            <tr>
+                                <td colspan="7" class="text-center py-4 text-muted">No query records logged yet.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script src="/static/script.js"></script>
 </body>
 </html>
+

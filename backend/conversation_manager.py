@@ -74,18 +74,25 @@ class ConversationMemory:
     def is_followup(self, query: str) -> bool:
         """
         Detects whether the current query is a follow-up referring
-        to a previous turn (uses pronouns or very short).
+        to a previous turn (uses pronouns or continuation phrases).
         """
-        q_lower = query.lower().strip()
+        if not self.has_memory():
+            return False
 
-        # Very short queries are likely follow-ups
-        if len(q_lower.split()) <= 4 and self.has_memory():
-            return True
+        q_lower = query.lower().strip()
 
         # Check for reference pronouns/phrases
         for ref in self.REFERENCE_WORDS:
             if re.search(rf"\b{re.escape(ref)}\b", q_lower):
                 return True
+
+        # Check for continuation phrases / dependent fragments
+        continuation_starters = (
+            "what about", "how about", "and ", "why", "how so", "more details",
+            "tell me more", "give more", "explain more", "what else", "also"
+        )
+        if any(q_lower.startswith(cs) for cs in continuation_starters):
+            return True
 
         return False
 
@@ -99,27 +106,37 @@ class ConversationMemory:
 
         last_turn = self.turns[-1]
         prior_topics = last_turn.get("topics", [])
+        if not prior_topics:
+            return query
 
         q_lower = query.lower()
+        main_topic = prior_topics[0]
 
         # Replace pronouns with the most recent topic
-        if prior_topics:
-            main_topic = prior_topics[0]
-            for pron in ["it", "this", "that", "them", "these", "those"]:
-                if re.search(rf"\b{pron}\b", q_lower):
-                    enriched = re.sub(
-                        rf"\b{pron}\b",
-                        main_topic,
-                        query,
-                        flags=re.IGNORECASE,
-                    )
-                    return enriched.strip()
+        has_pronoun = False
+        for pron in ["it", "this", "that", "them", "these", "those"]:
+            if re.search(rf"\b{pron}\b", q_lower):
+                query = re.sub(
+                    rf"\b{pron}\b",
+                    main_topic,
+                    query,
+                    flags=re.IGNORECASE,
+                )
+                has_pronoun = True
 
-        # If query is very short, prefix with prior topic
-        if len(query.split()) <= 4 and prior_topics:
-            return f"{query.strip()} (regarding {prior_topics[0]})"
+        if has_pronoun:
+            return query.strip()
+
+        # Continuation phrases like "what about paging?" -> "what about paging? (regarding virtual memory)"
+        continuation_starters = (
+            "what about", "how about", "and ", "why", "how so", "more details",
+            "tell me more", "give more", "explain more", "what else", "also"
+        )
+        if any(q_lower.startswith(cs) for cs in continuation_starters):
+            return f"{query.strip()} (regarding {main_topic})"
 
         return query
+
 
     def get_context_summary(self) -> str:
         """
@@ -341,46 +358,7 @@ class ConversationManager:
         )):
             return clar
 
-        # Pattern 0b: Chip-style clarification — user picked a specific option from a list.
-        # e.g. orig="tell me about networks", clar="Computer Networks (LAN, WAN, protocols)"
-        # → "Tell me about Computer Networks"
-        # Detect: clarification is a noun phrase (not a question, not a preposition phrase)
-        # and original query contains "tell me about" or "explain" or "what is"
-        clar_words = clar_clean.split()
-        is_noun_phrase = (
-            len(clar_words) >= 1
-            and not clar_lower.startswith(("for ", "about ", "in ", "of ", "with ", "how ", "what ", "why "))
-            and not clar.endswith("?")
-        )
-
-        # Extract core noun from chip (strip parenthetical qualifiers like "(LAN, WAN, protocols)")
-        clar_core = re.sub(r"\s*\(.*?\)", "", clar_clean).strip()
-
-        if is_noun_phrase:
-            # Replace the topic word in original query with the clarified noun
-            for trigger in ["tell me about", "explain", "what is", "describe", "discuss"]:
-                if trigger in orig_lower:
-                    # Build a clean question: "Tell me about Computer Networks"
-                    resolved = f"{trigger.capitalize()} {clar_core}"
-                    return self._finalize_sentence(resolved, orig)
-
-            # For patterns like "What are networks?" replace the ambiguous noun
-            # Find the main ambiguous noun in original and replace with clarified version
-            orig_words = orig_clean.split()
-            # Find last substantial word in original (the ambiguous noun)
-            stop_words = {"what", "is", "are", "the", "a", "an", "tell", "me", "about", "explain", "how", "does", "do"}
-            subst_words = [w for w in orig_words if w.lower() not in stop_words]
-            if subst_words:
-                # Replace the last substantive word with the clarified core noun
-                last_word = subst_words[-1]
-                resolved = re.sub(rf"\b{re.escape(last_word)}\b", clar_core, orig_clean, count=1, flags=re.IGNORECASE)
-                return self._finalize_sentence(resolved, orig)
-
-            # Fallback: append "about" + clarification
-            resolved = f"{orig_clean} about {clar_core}"
-            return self._finalize_sentence(resolved, orig)
-
-        # Pattern 1: Pronoun substitution
+        # Pattern 1: Pronoun substitution (it, this, that, etc.)
         for pron in ["it", "this", "that", "them", "these", "those"]:
             if re.search(rf"\b{pron}\b", orig_lower):
                 c_clean = re.sub(
@@ -389,7 +367,7 @@ class ConversationManager:
                 resolved = re.sub(rf"\b{pron}\b", c_clean, orig_clean, flags=re.IGNORECASE)
                 return self._finalize_sentence(resolved, orig)
 
-        # Pattern 2: requirements
+        # Pattern 2: Requirements queries
         if "requirements" in orig_lower:
             adj = re.sub(r"^(for|about|of|regarding)\s+", "", clar_clean, flags=re.IGNORECASE).strip()
             if "requirement" in adj.lower():
@@ -398,7 +376,7 @@ class ConversationManager:
                 resolved = re.sub(r"\b(the\s+)?requirements\b", f"the {adj} requirements", orig_clean, flags=re.IGNORECASE)
             return self._finalize_sentence(resolved, orig)
 
-        # Pattern 3: process / procedure / workflow
+        # Pattern 3: Process / procedure / workflow / application queries
         if "process" in orig_lower or "procedure" in orig_lower or "workflow" in orig_lower:
             qualifier = re.sub(r"^(for|about|of|in|regarding)\s+", "", clar_clean, flags=re.IGNORECASE).strip()
             if clar_lower.startswith(("for ", "of ", "in ", "regarding ")):
@@ -409,7 +387,7 @@ class ConversationManager:
                 resolved = re.sub(r"\b(the\s+)?(process|procedure|workflow)\b", rf"the {qualifier} \2", orig_clean, flags=re.IGNORECASE)
             return self._finalize_sentence(resolved, orig)
 
-        # Pattern 4: apply
+        # Pattern 4: Apply queries
         if "apply" in orig_lower:
             if clar_lower.startswith(("for", "to", "in")):
                 resolved = f"{orig_clean} {clar_clean}"
@@ -417,14 +395,37 @@ class ConversationManager:
                 resolved = f"{orig_clean} for {clar_clean}"
             return self._finalize_sentence(resolved, orig)
 
-        # Pattern 5: preposition-led clarification
+        # Pattern 5: Preposition-led clarification
         if clar_lower.startswith(("for ", "in ", "about ", "regarding ", "of ", "with ", "to ")):
             resolved = f"{orig_clean} {clar_clean}"
             return self._finalize_sentence(resolved, orig)
 
-        # Pattern 6: default — append with "about"
-        resolved = f"{orig_clean} about {clar_clean}"
+        # Pattern 6: Chip-style topic replacement or multi-meaning keyword replacement
+        # e.g., "tell me about networks" + "Computer Networks (LAN, WAN, protocols)" -> "tell me about Computer Networks"
+        # e.g., "what is python" + "Python programming language" -> "what is Python programming language"
+        # e.g., "explain memory" + "Computer Memory (RAM/ROM)" -> "explain Computer Memory"
+        clar_core = re.sub(r"\s*\(.*?\)", "", clar_clean).strip()
+
+        multi_meaning_words = [
+            "networks", "network", "python", "memory", "language", "agent",
+            "architecture", "security", "intelligence", "learning", "model",
+            "cloud", "protocol", "kernel", "thread", "interface"
+        ]
+        for kw in multi_meaning_words:
+            if re.search(rf"\b{kw}\b", orig_lower):
+                resolved = re.sub(rf"\b{kw}\b", clar_core, orig_clean, flags=re.IGNORECASE)
+                return self._finalize_sentence(resolved, orig)
+
+        # If original has conversational trigger phrases, substitute or append cleanly
+        for trigger in ["tell me about", "explain", "describe", "discuss"]:
+            if trigger in orig_lower:
+                resolved = f"{trigger.capitalize()} {clar_core}"
+                return self._finalize_sentence(resolved, orig)
+
+        # Default fallback
+        resolved = f"{orig_clean} about {clar_core}"
         return self._finalize_sentence(resolved, orig)
+
 
 
     def _finalize_sentence(self, text: str, original_query: str) -> str:

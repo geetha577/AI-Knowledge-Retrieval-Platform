@@ -8,7 +8,7 @@ semantic retrieval, and grounded response generation.
 import os
 import sys
 from pathlib import Path
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template, send_from_directory, Response
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -36,6 +36,8 @@ from backend.response_generation_agent import ResponseGenerationAgent
 from backend.clarification_agent import ClarificationAgent
 from backend.conversation_manager import ConversationManager
 from backend.orchestrator import MultiAgentOrchestrator
+from backend.analytics_engine import AnalyticsEngine
+from backend.knowledge_gap_detector import KnowledgeGapDetector
 
 # Create Flask application
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -68,12 +70,18 @@ retrieval_agent = RetrievalAgent(retriever=retriever)
 response_generation_agent = ResponseGenerationAgent(generator=generator)
 clarification_agent = ClarificationAgent()
 conversation_manager = ConversationManager()
+
+# Milestone 4 Query Analytics & Knowledge Gap Detection
+analytics_engine = AnalyticsEngine()
+knowledge_gap_detector = KnowledgeGapDetector(analytics_engine=analytics_engine)
+
 orchestrator = MultiAgentOrchestrator(
     query_understanding_agent=query_understanding_agent,
     retrieval_agent=retrieval_agent,
     response_generation_agent=response_generation_agent,
     clarification_agent=clarification_agent,
     conversation_manager=conversation_manager,
+    analytics_engine=analytics_engine,
 )
 
 
@@ -143,7 +151,8 @@ def upload_document():
     try:
         # Step 1 & 2: Validate and save file safely
         saved_path = doc_processor.save_file(uploaded_file)
-        print(f"[UPLOAD] Saved safely to: {saved_path}")
+        filename = saved_path.name
+        print(f"[UPLOAD] Saved safely as: {filename}")
 
         # Step 3 & 4: Extract and clean text
         print(f"[UPLOAD] Extracting text from {saved_path.suffix.upper()}...")
@@ -155,7 +164,7 @@ def upload_document():
         print(f"[CHUNKING] Created {len(chunks)} chunks with attribution metadata.")
 
         if not chunks:
-            return jsonify({"error": "No text content could be derived from this document."}), 400
+            return jsonify({"error": "No readable text content could be extracted from this document."}), 400
 
         # Step 6: Generate dense vector embeddings
         chunk_texts = [c.text for c in chunks]
@@ -185,7 +194,8 @@ def upload_document():
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         print(f"[UPLOAD UNEXPECTED ERROR] {str(e)}")
-        return jsonify({"error": f"Failed to process document: {str(e)}"}), 500
+        return jsonify({"error": "Unable to process this file. Please make sure it is not corrupted and try again."}), 500
+
 
 
 @app.route("/query", methods=["POST"])
@@ -344,13 +354,95 @@ def reset_knowledge_base():
     """Utility endpoint to clear the vector index and start fresh."""
     try:
         vector_store.clear()
+        doc_processor.clean_upload_dir()
         conversation_manager.clear_all()
         return jsonify({
             "success": True,
-            "message": "Knowledge base, vector index, and active clarification sessions successfully cleared."
+            "message": "Knowledge base, uploads, vector index, and active clarification sessions successfully cleared."
         }), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ----------------------------------------------------------------------
+# Milestone 4 - Analytics & Knowledge Gap Detection Endpoints
+# ----------------------------------------------------------------------
+
+@app.route("/analytics/summary", methods=["GET"])
+def get_analytics_summary():
+    """Returns aggregated query analytics, confidence breakdown, and themes."""
+    try:
+        summary = analytics_engine.get_summary()
+        return jsonify(summary), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to retrieve analytics summary: {str(e)}"}), 500
+
+
+@app.route("/analytics/gaps", methods=["GET"])
+def get_knowledge_gaps():
+    """Returns detected knowledge base gaps, frequencies, and recommendations."""
+    try:
+        threshold = float(request.args.get("threshold", 0.40))
+        gaps = knowledge_gap_detector.detect_gaps(min_confidence_threshold=threshold)
+        return jsonify({
+            "gaps": gaps,
+            "total_gaps": len(gaps),
+            "high_severity_count": sum(1 for g in gaps if g.get("severity") == "High"),
+        }), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to detect knowledge gaps: {str(e)}"}), 500
+
+
+@app.route("/analytics/queries", methods=["GET"])
+def get_analytics_queries():
+    """Returns filtered query transaction logs."""
+    try:
+        domain = request.args.get("domain")
+        query_type = request.args.get("query_type")
+        confidence = request.args.get("confidence")
+        status = request.args.get("status")
+        unanswered_only = request.args.get("unanswered_only", "false").lower() == "true"
+        limit = int(request.args.get("limit", 100))
+
+        logs = analytics_engine.get_logs(
+            domain=domain,
+            query_type=query_type,
+            confidence=confidence,
+            status=status,
+            unanswered_only=unanswered_only,
+            limit=limit,
+        )
+        return jsonify({"logs": logs, "count": len(logs)}), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to retrieve query logs: {str(e)}"}), 500
+
+
+@app.route("/analytics/clear", methods=["POST"])
+def clear_analytics():
+    """Resets all query analytics records."""
+    try:
+        analytics_engine.clear()
+        return jsonify({
+            "success": True,
+            "message": "Query analytics and gap logs have been successfully reset."
+        }), 200
+    except Exception as e:
+        return jsonify({"error": f"Failed to clear analytics: {str(e)}"}), 500
+
+
+@app.route("/analytics/export", methods=["GET"])
+def export_analytics_csv():
+    """Exports query logs as a downloadable CSV report."""
+    try:
+        csv_data = analytics_engine.export_csv()
+        return Response(
+            csv_data,
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=query_analytics_report.csv"}
+        )
+    except Exception as e:
+        return jsonify({"error": f"Failed to export analytics: {str(e)}"}), 500
 
 
 # ----------------------------------------------------------------------

@@ -63,6 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupEventListeners();
     setupAutoResizeTextarea();
     setupVoiceInput();
+    setupAnalyticsDashboard();
 });
 
 
@@ -73,7 +74,13 @@ function setupEventListeners() {
         dropZone.addEventListener("dragover", handleDragOver);
         dropZone.addEventListener("dragleave", handleDragLeave);
         dropZone.addEventListener("drop", handleDrop);
+        dropZone.addEventListener("click", (e) => {
+            if (fileInput && e.target !== fileInput && e.target.tagName !== "LABEL") {
+                fileInput.click();
+            }
+        });
     }
+
 
     // Refresh & Reset
     if (refreshDocsBtn) refreshDocsBtn.addEventListener("click", loadDocuments);
@@ -157,17 +164,22 @@ function renderDocumentsList(docs) {
         return;
     }
 
-    documentsList.innerHTML = docs.map(doc => `
+    documentsList.innerHTML = docs.map(doc => {
+        const count = doc.chunk_count !== undefined ? doc.chunk_count : (doc.total_chunks !== undefined ? doc.total_chunks : 0);
+        const pagesText = doc.pages && doc.pages.length ? ` &middot; ${doc.pages.length} page${doc.pages.length === 1 ? '' : 's'}` : '';
+        return `
         <div class="doc-item">
             <div class="doc-item-name" title="${escapeHtml(doc.document_name)}">
                 ${escapeHtml(doc.document_name)}
             </div>
             <div class="doc-item-meta">
-                ${doc.total_chunks} chunk${doc.total_chunks === 1 ? "" : "s"}
+                ${count} section${count === 1 ? "" : "s"}${pagesText}
             </div>
         </div>
-    `).join("");
+        `;
+    }).join("");
 }
+
 
 function updateChunkBadge(count) {
     if (!chunkCountBadge) return;
@@ -205,10 +217,10 @@ async function loadSampleDocs() {
 
 async function loadSampleFile(filename) {
     hideElement(uploadError);
-    showUploadProgress("Indexing sample document...");
+    hideElement(uploadSuccessMsg());
+    showUploadProgress(`Loading and reading sample: ${filename}...`);
 
     try {
-        // Bug Fix: use POST /load_sample with JSON body, not URL param
         const res = await fetch("/load_sample", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -218,16 +230,17 @@ async function loadSampleFile(filename) {
         hideUploadProgress();
 
         if (!res.ok || data.error) {
-            showError(uploadError, data.error || "Failed to index sample.");
+            showError(uploadError, data.error || "Could not load sample document. Please try again.");
         } else {
-            showUploadSuccess(`✅ "${data.document_name}" loaded — ${data.chunks_created} chunks indexed.`);
+            showUploadSuccess(`✅ "${data.document_name}" is ready (${data.chunks_created} sections indexed).`);
             await loadDocuments();
         }
     } catch (err) {
         hideUploadProgress();
-        showError(uploadError, "Network error loading sample document.");
+        showError(uploadError, "Network connection issue loading sample document.");
     }
 }
+
 
 
 
@@ -266,13 +279,24 @@ function handleDragLeave() {
 function handleDrop(e) {
     e.preventDefault();
     if (dropZone) dropZone.classList.remove("dragover");
-    const files = e.dataTransfer.files;
-    if (files.length > 0) uploadFile(files[0]);
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length > 0) {
+        uploadFilesSequentially(files);
+    }
 }
 
 function handleFileSelect(e) {
-    const files = e.target.files;
-    if (files.length > 0) uploadFile(files[0]);
+    const files = Array.from(e.target.files || []);
+    e.target.value = ""; // Immediately reset so selecting the same file again triggers upload
+    if (files.length > 0) {
+        uploadFilesSequentially(files);
+    }
+}
+
+async function uploadFilesSequentially(files) {
+    for (const file of files) {
+        await uploadFile(file);
+    }
 }
 
 async function uploadFile(file) {
@@ -281,11 +305,11 @@ async function uploadFile(file) {
     const allowed = ["pdf", "docx", "txt", "csv"];
     const ext = file.name.split(".").pop().toLowerCase();
     if (!allowed.includes(ext)) {
-        showError(uploadError, `Unsupported format '.${ext}'. Please upload PDF, DOCX, TXT, or CSV.`);
+        showError(uploadError, `Please select a PDF, Word document (.docx), text file (.txt), or spreadsheet (.csv).`);
         return;
     }
 
-    showUploadProgress(`Uploading & indexing ${file.name}...`);
+    showUploadProgress(`Reading & indexing ${file.name}...`);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -296,17 +320,17 @@ async function uploadFile(file) {
         hideUploadProgress();
 
         if (!res.ok || data.error) {
-            showError(uploadError, data.error || "Upload failed.");
+            showError(uploadError, data.error || "Unable to upload this document. Please check the file and try again.");
         } else {
-            if (fileInput) fileInput.value = "";
-            showUploadSuccess(`✅ "${data.document_name}" indexed — ${data.chunks_created} chunks created.`);
+            showUploadSuccess(`✅ "${data.document_name}" successfully indexed (${data.chunks_created} sections ready).`);
             await loadDocuments();
         }
     } catch (err) {
         hideUploadProgress();
-        showError(uploadError, "Network error during upload.");
+        showError(uploadError, "Network connection issue during upload. Please try again.");
     }
 }
+
 
 function uploadSuccessMsg() {
     let el = document.getElementById("upload-success-msg");
@@ -517,7 +541,7 @@ function appendClarificationMessage(data) {
     `;
 
     chatStream.appendChild(msgEl);
-    scrollToBottom();
+    scrollToLatestMessage();
 }
 
 function handleSuggestionClick(optionText) {
@@ -574,52 +598,47 @@ function appendAssistantAnswer(data) {
             <div class="transparency-panel">
                 <button type="button" class="transparency-toggle-btn" onclick="toggleSources('${sourceCardId}')">
                     <div class="transparency-toggle-left">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                             <polyline points="14 2 14 8 20 8"/>
-                            <line x1="16" y1="13" x2="8" y2="13"/>
-                            <line x1="16" y1="17" x2="8" y2="17"/>
-                            <polyline points="10 9 9 9 8 9"/>
                         </svg>
-                        <span>Evidence &amp; Transparency Panel</span>
-                        <span class="transparency-badge">${sources.length} chunk${sources.length === 1 ? "" : "s"}</span>
+                        <span>📄 Sources (${sources.length}) &middot; Top match: ${topScorePct}%</span>
                     </div>
-                    <span id="icon-${sourceCardId}">▼</span>
+                    <span id="icon-${sourceCardId}">▶</span>
                 </button>
-                <div class="transparency-content" id="${sourceCardId}">
-                    <div class="transparency-summary-bar">
-                        <span><strong>Retrieved Evidence:</strong> ${sources.length} chunk${sources.length === 1 ? "" : "s"} from vector index</span>
-                        <span><strong>Top Relevance:</strong> ${topScorePct}%</span>
-                    </div>
+                <div class="transparency-content" id="${sourceCardId}" style="display:none;">
                     ${sources.map((src, idx) => {
                         const score = src.similarity_score !== undefined ? Math.round(src.similarity_score * 100) : 0;
-                        const pageText = src.page_number ? `Page ${src.page_number}` : (src.row_number ? `Row ${src.row_number}` : "Main section");
+                        const pageText = src.page_number ? `p.${src.page_number}` : (src.row_number ? `row ${src.row_number}` : "");
                         let fillClass = "score-fill-low";
                         if (score >= 70) fillClass = "score-fill-high";
                         else if (score >= 40) fillClass = "score-fill-medium";
 
-                        const citationRef = src.citation_ref || `[Citation #${idx + 1}]`;
-                        const snippet = src.full_text || src.text_snippet || src.content || "Snippet unavailable.";
+                        const citationRef = src.citation_ref || `[${idx + 1}]`;
+                        const snipId = `snip-${sourceCardId}-${idx}`;
+                        const snippet = src.text_snippet || src.content || "";
 
                         return `
                             <div class="chunk-evidence-card">
                                 <div class="chunk-evidence-header">
                                     <span class="chunk-citation-badge">${escapeHtml(citationRef)}</span>
-                                    <span class="chunk-doc-info">${escapeHtml(src.document_name || "Document")} &middot; ${pageText}</span>
+                                    <span class="chunk-doc-info">${escapeHtml(src.document_name || "Document")}${pageText ? " &middot; " + pageText : ""}</span>
                                     <div class="chunk-score-area">
-                                        <div class="score-progress-bar" title="Similarity match: ${score}%">
+                                        <div class="score-progress-bar" title="Similarity: ${score}%">
                                             <div class="score-progress-fill ${fillClass}" style="width: ${Math.min(score, 100)}%;"></div>
                                         </div>
                                         <span class="chunk-score-label">${score}%</span>
                                     </div>
+                                    ${snippet ? `<button class="btn-link snip-toggle" onclick="toggleSnip('${snipId}')">show text</button>` : ""}
                                 </div>
-                                <div class="chunk-text-evidence">${escapeHtml(snippet)}</div>
+                                ${snippet ? `<div class="chunk-text-evidence" id="${snipId}" style="display:none;">${escapeHtml(snippet)}</div>` : ""}
                             </div>
                         `;
                     }).join("")}
                 </div>
             </div>
         `;
+
     } else if (conf.toLowerCase() === "none" || conf.toLowerCase() === "low") {
         transparencyHtml = `
             <div class="transparency-panel">
@@ -684,7 +703,7 @@ function appendAssistantAnswer(data) {
     `;
 
     chatStream.appendChild(msgEl);
-    scrollToBottom();
+    scrollToLatestMessage();
 }
 
 function appendErrorMessage(errorText) {
@@ -697,7 +716,7 @@ function appendErrorMessage(errorText) {
         </div>
     `;
     chatStream.appendChild(msgEl);
-    scrollToBottom();
+    scrollToLatestMessage();
 }
 
 function toggleSources(id) {
@@ -706,10 +725,21 @@ function toggleSources(id) {
     if (!el) return;
     if (el.style.display === "none") {
         el.style.display = "flex";
-        if (icon) icon.textContent = "▲";
+        if (icon) icon.textContent = "▼";
     } else {
         el.style.display = "none";
-        if (icon) icon.textContent = "▼";
+        if (icon) icon.textContent = "▶";
+    }
+}
+
+function toggleSnip(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const isHidden = el.style.display === "none";
+    el.style.display = isHidden ? "block" : "none";
+    const btn = el.previousElementSibling ? el.previousElementSibling.querySelector(".snip-toggle") : null;
+    if (btn) {
+        btn.textContent = isHidden ? "hide text" : "show text";
     }
 }
 
@@ -794,6 +824,18 @@ function hideLiveProgress() {
 function scrollToBottom() {
     if (!chatStream) return;
     chatStream.scrollTop = chatStream.scrollHeight;
+}
+
+function scrollToLatestMessage() {
+    if (!chatStream) return;
+    // Scroll the last message element into view at the top of the visible area
+    const messages = chatStream.querySelectorAll(".msg-user, .msg-assistant");
+    if (messages.length > 0) {
+        const last = messages[messages.length - 1];
+        last.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+        chatStream.scrollTop = chatStream.scrollHeight;
+    }
 }
 
 function capitalize(s) {
@@ -926,14 +968,18 @@ function handleTTS(btn) {
         return;
     }
 
-    // If currently speaking, stop
-    if (window.speechSynthesis.speaking) {
-        window.speechSynthesis.cancel();
-        document.querySelectorAll(".btn-tts").forEach(b => {
-            b.classList.remove("speaking");
-            const lbl = b.querySelector(".tts-label");
-            if (lbl) lbl.textContent = "Listen";
-        });
+    const isCurrentlySpeakingThis = btn.classList.contains("speaking");
+
+    // Cancel ongoing speech and reset all TTS buttons
+    window.speechSynthesis.cancel();
+    document.querySelectorAll(".btn-tts").forEach(b => {
+        b.classList.remove("speaking");
+        const lbl = b.querySelector(".tts-label");
+        if (lbl) lbl.textContent = "Listen";
+    });
+
+    // If the user clicked the button that was already speaking, stop
+    if (isCurrentlySpeakingThis) {
         return;
     }
 
@@ -944,8 +990,6 @@ function handleTTS(btn) {
     if (!body) return;
     const textToSpeak = body.textContent.trim();
     if (!textToSpeak) return;
-
-    window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
     utterance.rate = 1.0;
@@ -968,4 +1012,281 @@ function handleTTS(btn) {
 
     window.speechSynthesis.speak(utterance);
 }
+
+
+// ============================================================
+// Section: Milestone 4 — Analytics Dashboard & Knowledge Gaps
+// ============================================================
+
+const analyticsModal      = document.getElementById("analytics-modal");
+const openAnalyticsBtn    = document.getElementById("open-analytics-btn");
+const closeAnalyticsBtn   = document.getElementById("close-analytics-btn");
+const clearAnalyticsBtn   = document.getElementById("clear-analytics-btn");
+const refreshAnalyticsBtn = document.getElementById("refresh-analytics-btn");
+const filterStatus        = document.getElementById("filter-status");
+const filterConfidence    = document.getElementById("filter-confidence");
+const filterUnanswered    = document.getElementById("filter-unanswered");
+
+function setupAnalyticsDashboard() {
+    if (openAnalyticsBtn) {
+        openAnalyticsBtn.addEventListener("click", openAnalyticsModal);
+    }
+    if (closeAnalyticsBtn) {
+        closeAnalyticsBtn.addEventListener("click", closeAnalyticsModal);
+    }
+    if (analyticsModal) {
+        analyticsModal.addEventListener("click", (e) => {
+            if (e.target === analyticsModal) {
+                closeAnalyticsModal();
+            }
+        });
+    }
+
+    // Tab switching
+    document.querySelectorAll(".analytics-tab-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const targetTab = btn.getAttribute("data-tab");
+            document.querySelectorAll(".analytics-tab-btn").forEach(b => b.classList.remove("active"));
+            document.querySelectorAll(".analytics-tab-content").forEach(tc => {
+                tc.classList.remove("active");
+                tc.style.display = "none";
+            });
+            btn.classList.add("active");
+            const activeContent = document.getElementById(targetTab);
+            if (activeContent) {
+                activeContent.classList.add("active");
+                activeContent.style.display = "";
+            }
+        });
+    });
+
+    if (clearAnalyticsBtn) {
+        clearAnalyticsBtn.addEventListener("click", handleClearAnalytics);
+    }
+    if (refreshAnalyticsBtn) {
+        refreshAnalyticsBtn.addEventListener("click", () => {
+            loadAnalyticsSummary();
+            loadKnowledgeGaps();
+            loadQueryLogs();
+        });
+    }
+    if (filterStatus) filterStatus.addEventListener("change", loadQueryLogs);
+    if (filterConfidence) filterConfidence.addEventListener("change", loadQueryLogs);
+    if (filterUnanswered) filterUnanswered.addEventListener("change", loadQueryLogs);
+}
+
+function openAnalyticsModal() {
+    if (!analyticsModal) return;
+    analyticsModal.style.display = "flex";
+    loadAnalyticsSummary();
+    loadKnowledgeGaps();
+    loadQueryLogs();
+}
+
+function closeAnalyticsModal() {
+    if (!analyticsModal) return;
+    analyticsModal.style.display = "none";
+}
+
+async function loadAnalyticsSummary() {
+    try {
+        const res = await fetch("/analytics/summary");
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Update KPIs
+        const totalQueriesEl = document.getElementById("metric-total-queries");
+        const breakdownEl = document.getElementById("metric-queries-breakdown");
+        const successRateEl = document.getElementById("metric-success-rate");
+        const avgScoreEl = document.getElementById("metric-avg-score");
+
+        if (totalQueriesEl) totalQueriesEl.textContent = data.total_queries || 0;
+        if (breakdownEl) breakdownEl.textContent = `${data.answered_count || 0} answered · ${data.clarification_count || 0} clarified · ${data.unanswered_count || 0} unanswered`;
+        if (successRateEl) successRateEl.textContent = `${data.success_rate_percent || 0}%`;
+        if (avgScoreEl) avgScoreEl.textContent = `${data.average_top_score || 0} / ${data.average_latency_sec || 0}s`;
+
+        // Render query types distribution
+        renderDistributionBars("query-type-dist-bars", data.query_type_distribution || {}, data.total_queries || 1, "#2563eb");
+
+        // Render confidence distribution
+        renderDistributionBars("confidence-dist-bars", data.confidence_distribution || {}, data.total_queries || 1, "#10b981");
+
+        // Render top domains
+        renderTopDomains(data.domain_access_frequency || {});
+    } catch (err) {
+        console.warn("Failed to load analytics summary:", err);
+    }
+}
+
+async function loadKnowledgeGaps() {
+    try {
+        const res = await fetch("/analytics/gaps");
+        if (!res.ok) return;
+        const data = await res.json();
+        const gaps = data.gaps || [];
+
+        const gapsCountEl = document.getElementById("metric-gaps-count");
+        const gapsBadgeEl = document.getElementById("gaps-badge-count");
+        const gapsList = document.getElementById("knowledge-gaps-list");
+
+        if (gapsCountEl) gapsCountEl.textContent = gaps.length;
+        if (gapsBadgeEl) gapsBadgeEl.textContent = `${gaps.length} Detected`;
+
+        if (!gapsList) return;
+
+        if (gaps.length === 0) {
+            gapsList.innerHTML = `<div class="empty-analytics-msg">No knowledge gaps detected yet. Queries with low similarity or missing content will appear here automatically.</div>`;
+            return;
+        }
+
+        gapsList.innerHTML = gaps.map(gap => {
+            const sevClass = (gap.severity || "low").toLowerCase();
+            const samplesHtml = (gap.sample_queries || []).map(q => `<div>&bull; "${escapeHtml(q)}"</div>`).join("");
+            return `
+                <div class="gap-card severity-${sevClass}">
+                    <div class="gap-header">
+                        <span class="gap-title">${escapeHtml(gap.topic || "Unknown Topic")}</span>
+                        <div class="gap-meta-badges">
+                            <span class="badge ${sevClass === 'high' ? 'badge-danger' : sevClass === 'medium' ? 'badge-warning' : 'badge-info'}">${escapeHtml(gap.severity)} Priority</span>
+                            <span class="badge badge-neutral">${gap.frequency} ${gap.frequency === 1 ? 'query' : 'queries'}</span>
+                        </div>
+                    </div>
+                    <div class="gap-samples-box">
+                        <strong>Sample Queries:</strong>
+                        ${samplesHtml}
+                    </div>
+                    <div class="gap-recommendation">
+                        <strong>Recommendation:</strong> ${escapeHtml(gap.recommendation || "")}
+                    </div>
+                </div>
+            `;
+        }).join("");
+    } catch (err) {
+        console.warn("Failed to load knowledge gaps:", err);
+    }
+}
+
+async function loadQueryLogs() {
+    try {
+        const status = filterStatus ? filterStatus.value : "all";
+        const confidence = filterConfidence ? filterConfidence.value : "all";
+        const unanswered = filterUnanswered && filterUnanswered.checked ? "true" : "false";
+
+        const params = new URLSearchParams({
+            status: status,
+            confidence: confidence,
+            unanswered_only: unanswered,
+            limit: "100"
+        });
+
+        const res = await fetch(`/analytics/queries?${params.toString()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const logs = data.logs || [];
+        renderLogsTable(logs);
+    } catch (err) {
+        console.warn("Failed to load query logs:", err);
+    }
+}
+
+function renderLogsTable(logs) {
+    const tbody = document.getElementById("logs-table-body");
+    if (!tbody) return;
+
+    if (!logs || logs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted">No query records matching the current filters.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = logs.map(entry => {
+        const timeStr = entry.date_str ? entry.date_str.split(" ")[1] || entry.date_str : "Just now";
+        let statusBadge = "status-badge-answered";
+        let statusLabel = "Answered";
+
+        if (entry.status === "clarification_required") {
+            statusBadge = "status-badge-clarification";
+            statusLabel = "Clarification";
+        } else if (entry.status === "no_results" || entry.is_unanswered) {
+            statusBadge = "status-badge-no_results";
+            statusLabel = "No Results";
+        }
+
+        const confClass = entry.confidence === "High" ? "badge-success" : entry.confidence === "Medium" ? "badge-info" : entry.confidence === "Low" ? "badge-warning" : "badge-neutral";
+        const sourcesText = (entry.source_documents || []).length > 0 ? entry.source_documents.join(", ") : "None";
+
+        return `
+            <tr>
+                <td style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted);">${escapeHtml(timeStr)}</td>
+                <td class="log-query-cell" title="${escapeHtml(entry.query)}">
+                    <div>${escapeHtml(entry.query)}</div>
+                    ${entry.resolved_query && entry.resolved_query !== entry.query ? `<div class="log-query-resolved">Resolved: ${escapeHtml(entry.resolved_query)}</div>` : ''}
+                </td>
+                <td style="text-transform: capitalize;">${escapeHtml(entry.query_type || "factual")}</td>
+                <td><span class="badge ${confClass}">${escapeHtml(entry.confidence || "None")}</span></td>
+                <td style="font-family: var(--font-mono); font-size: 0.72rem;">${(entry.top_similarity_score * 100).toFixed(0)}% / ${entry.retrieved_chunks_count || 0}</td>
+                <td><span class="log-status-badge ${statusBadge}">${escapeHtml(statusLabel)}</span></td>
+                <td style="font-size: 0.72rem; color: var(--text-secondary); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(sourcesText)}">${escapeHtml(sourcesText)}</td>
+            </tr>
+        `;
+    }).join("");
+}
+
+function renderDistributionBars(containerId, dataObj, total, barColor) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const entries = Object.entries(dataObj);
+    if (entries.length === 0) {
+        container.innerHTML = `<div class="text-muted text-center py-2" style="font-size:0.75rem;">No data</div>`;
+        return;
+    }
+
+    container.innerHTML = entries.map(([label, count]) => {
+        const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+        return `
+            <div class="dist-bar-row">
+                <span class="dist-bar-label">${escapeHtml(label)}</span>
+                <div class="dist-bar-track">
+                    <div class="dist-bar-fill" style="width: ${pct}%; background-color: ${barColor};"></div>
+                </div>
+                <span class="dist-bar-val">${count}</span>
+            </div>
+        `;
+    }).join("");
+}
+
+function renderTopDomains(domainsObj) {
+    const container = document.getElementById("top-domains-list");
+    if (!container) return;
+
+    const entries = Object.entries(domainsObj);
+    if (entries.length === 0) {
+        container.innerHTML = `<div class="text-muted text-center py-2" style="font-size:0.75rem;">No document queries recorded yet.</div>`;
+        return;
+    }
+
+    container.innerHTML = entries.map(([docName, count]) => `
+        <div class="top-domain-row">
+            <span class="top-domain-name" title="${escapeHtml(docName)}">${escapeHtml(docName)}</span>
+            <span class="top-domain-count">${count} ${count === 1 ? 'hit' : 'hits'}</span>
+        </div>
+    `).join("");
+}
+
+async function handleClearAnalytics() {
+    if (!confirm("Are you sure you want to reset all query analytics and knowledge gap logs?")) {
+        return;
+    }
+    try {
+        const res = await fetch("/analytics/clear", { method: "POST" });
+        if (res.ok) {
+            loadAnalyticsSummary();
+            loadKnowledgeGaps();
+            loadQueryLogs();
+        }
+    } catch (err) {
+        alert("Failed to clear analytics: " + err.message);
+    }
+}
+
 

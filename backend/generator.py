@@ -151,23 +151,74 @@ class ResponseGenerator:
             return "explanation"
         return "general"
 
+    def _is_slide_noise(self, text: str) -> bool:
+        """Filters out slide headers, professor names, page numbers, and presentation artifacts."""
+        lower = text.lower()
+        if re.search(r"\b(dr\.|professor|assistant professor|faculty|dept\.|department of|scope|vit\b|university)\b", lower):
+            return True
+        if re.search(r"^(module\s*[-–]\s*\d+|unit\s*[-–]\s*\d+|chapter\s*[-–]\s*\d+|slide\s*\d+|page\s*\d+)\b", lower):
+            return True
+        # Lines with only numbers or single words
+        words = text.split()
+        if len(words) < 4:
+            return True
+        return False
+
+    def _extract_list_items(self, text: str) -> List[str]:
+        """Extracts bullet or numbered list items from text chunks."""
+        items = []
+        # Pattern 1: explicit bullet points or numbered lists
+        lines = text.split("\n")
+        for line in lines:
+            line_str = line.strip()
+            # Match bullets or numbers like "1.", "1)", "-", "*", "•"
+            m = re.match(r"^(?:[\•\-\*\–\—]|\d+[\.\)])\s*(.+)", line_str)
+            if m:
+                item = m.group(1).strip()
+                if len(item) > 10 and not self._is_slide_noise(item):
+                    items.append(item)
+            elif ":" in line_str and len(line_str) < 120 and not line_str.startswith("http"):
+                # Subheaders like "Narrow AI: Designed for specific tasks"
+                parts = line_str.split(":", 1)
+                header = parts[0].strip()
+                body = parts[1].strip()
+                if len(header) < 40 and len(body) > 10 and not self._is_slide_noise(line_str):
+                    items.append(f"**{header}:** {body}")
+
+        # Pattern 2: inline lists like "types include 1. ... 2. ..." or "such as X, Y, and Z"
+        if not items:
+            inline_matches = re.findall(r"(?:^|\s)(?:\d+[\.\)]|[a-c][\.\)])\s*([A-Z][^.\n]+(?:\.|$))", text)
+            for im in inline_matches:
+                im_clean = im.strip()
+                if len(im_clean) > 12 and not self._is_slide_noise(im_clean):
+                    items.append(im_clean)
+
+        return items
+
     def _local_grounded_synthesis(self, query: str, results: List[RetrievalResult]) -> str:
         """
-        A pure Python grounded synthesis engine that extracts key factual statements
-        from retrieved chunks that best correspond to the query terms, synthesizing
-        a clean, readable response without making up facts.
+        Intelligent grounded synthesis engine that analyzes query intent, extracts
+        key factual definitions and categorized items from retrieved chunks, filters
+        out presentation slide noise, and formats a coherent, structured response.
         """
+        q_lower = query.lower()
         q_type = self._classify_question_type(query)
-        query_words = set(re.findall(r"\b\w{3,}\b", query.lower()))
+
+        wants_definition = any(w in q_lower for w in ["what is", "what are", "define", "meaning", "definition", "explain"])
+        wants_list = any(w in q_lower for w in ["types", "kinds", "categories", "advantages", "benefits", "features", "list", "disadvantages", "steps"])
+        wants_comparison = any(w in q_lower for w in ["difference", "compare", "versus", " vs ", " vs."])
+        wants_procedural = any(w in q_lower for w in ["how to", "how do", "how does", "steps to", "process of"])
+
+        query_words = set(re.findall(r"\b\w{3,}\b", q_lower))
         stop_words = {
             "what", "when", "where", "which", "who", "whom", "whose", "why", "how",
             "does", "explain", "tell", "describe", "discuss", "compare", "between",
             "about", "with", "from", "that", "this", "these", "those", "have", "were",
-            "could", "would", "should"
+            "could", "would", "should", "then", "also", "some", "give", "types"
         }
         meaningful_words = query_words - stop_words
 
-        # Check if query targets structured CSV records
+        # Case 1: Structured CSV records
         csv_results = [r for r in results if r.chunk.document_type == "CSV" or ("|" in r.chunk.text and ":" in r.chunk.text)]
         csv_keywords = {"student", "students", "roll", "rollno", "cgpa", "department", "marks", "grade", "table", "csv", "record"}
         query_is_csv_related = bool(meaningful_words.intersection(csv_keywords))
@@ -183,47 +234,54 @@ class ResponseGenerator:
                     matched_rows.append(row_text)
 
             if matched_rows:
-                # Return distinct top matching CSV rows formatted nicely
                 unique_rows = list(dict.fromkeys(matched_rows))[:4]
                 return "\n".join(f"• {row}" for row in unique_rows)
 
-        # For prose documents: Extract and score candidate sentences across retrieved chunks
+        # Case 2: Prose & Presentation Documents
+        # Step A: Collect and clean candidate sentences & list items
         candidate_sentences: List[Tuple[float, str, int]] = []
+        extracted_list_items: List[str] = []
         seen_sentences: Set[str] = set()
 
         for chunk_rank, res in enumerate(results):
             text = res.chunk.text
-            # Skip CSV formatted text in general prose flow
-            if "|" in text and ":" in text:
+            if "|" in text and ":" in text and "student id" in text.lower():
                 continue
 
+            # Extract any bullet/item points directly from chunk formatting
+            if wants_list or wants_procedural:
+                items = self._extract_list_items(text)
+                for item in items:
+                    if item not in extracted_list_items:
+                        extracted_list_items.append(item)
+
+            # Split into clean prose sentences
             sentences = re.split(r"(?<=[.!?\n])\s+", text)
             for s_idx, sentence in enumerate(sentences):
                 s_clean = sentence.strip()
-                # Clean up markdown / heading markers
-                s_clean = re.sub(r"^[#\-=*]+\s*", "", s_clean).strip()
+                s_clean = re.sub(r"^[#\-=*•]+\s*", "", s_clean).strip()
+
                 if len(s_clean) < 18 or s_clean in seen_sentences:
+                    continue
+                if self._is_slide_noise(s_clean):
                     continue
 
                 s_words = set(re.findall(r"\b\w{3,}\b", s_clean.lower()))
                 overlap = len(meaningful_words.intersection(s_words))
 
-                # Boost score based on:
-                # 1. Direct keyword overlap
-                # 2. Earlier chunk rank (higher similarity chunk)
-                # 3. Leading position in chunk (often definitions / topic sentences)
-                base_score = overlap * 2.0
+                base_score = overlap * 2.5
                 if s_idx == 0:
                     base_score += 1.0  # Topic sentence bonus
                 base_score += max(0.0, 1.0 - (chunk_rank * 0.2))
 
-                # Question-type specific boosting
-                if q_type == "definition" and any(k in s_clean.lower() for k in [" is a ", " is an ", " refers to ", " is defined as "]):
-                    base_score += 3.0
-                elif q_type == "list" and any(k in s_clean.lower() for k in ["include", "such as", "types of", "advantages", "benefits"]):
-                    base_score += 2.0
-                elif q_type == "comparison" and any(k in s_clean.lower() for k in ["while", "whereas", "difference", "contrast", "in contrast"]):
+                # Question-type specific scoring
+                s_lower = s_clean.lower()
+                if wants_definition and any(k in s_lower for k in [" is a ", " is an ", " refers to ", " is defined as ", " is the "]):
+                    base_score += 3.5
+                if wants_list and any(k in s_lower for k in ["include", "such as", "types of", "consists of", "categories", "advantages"]):
                     base_score += 2.5
+                if wants_comparison and any(k in s_lower for k in ["while", "whereas", "difference", "contrast", "in contrast", "unlike"]):
+                    base_score += 3.0
 
                 if overlap > 0 or chunk_rank == 0:
                     candidate_sentences.append((base_score, s_clean, chunk_rank))
@@ -232,33 +290,70 @@ class ResponseGenerator:
         if not candidate_sentences:
             return results[0].chunk.text
 
-        # Sort candidate sentences by score descending
+        # Sort sentences by relevance
         candidate_sentences.sort(key=lambda x: x[0], reverse=True)
 
-        # Select top non-redundant sentences
-        selected = []
+        # Select top non-redundant definition/prose sentences
+        selected_sentences: List[str] = []
         for _, s_text, _ in candidate_sentences:
-            # Check lexical similarity with already selected to avoid near-duplicates
             words_curr = set(re.findall(r"\b\w{3,}\b", s_text.lower()))
             is_redundant = False
-            for prev in selected:
+            for prev in selected_sentences:
                 words_prev = set(re.findall(r"\b\w{3,}\b", prev.lower()))
                 if len(words_curr) > 0 and len(words_curr.intersection(words_prev)) / len(words_curr) > 0.75:
                     is_redundant = True
                     break
             if not is_redundant:
-                selected.append(s_text)
-            if len(selected) >= 3:
+                selected_sentences.append(s_text)
+            if len(selected_sentences) >= 3:
                 break
 
-        if not selected:
-            return results[0].chunk.text
+        # Step B: Structured Output Construction
+        # Subcase 2.1: Compound Query (Definition + Types/List)
+        if (wants_definition and wants_list) or (wants_list and len(extracted_list_items) >= 2):
+            definition_part = selected_sentences[0] if selected_sentences else ""
+            # Ensure definition part isn't already a list header
+            if definition_part.endswith(":"):
+                definition_part = definition_part[:-1] + "."
 
-        # Format output: if question was a list, format as bullets; otherwise as a cohesive paragraph
-        if q_type == "list" and len(selected) > 1:
-            return "\n".join(f"• {s}" for s in selected)
+            items_to_show = extracted_list_items[:5] if extracted_list_items else [
+                s for s in selected_sentences[1:] if len(s) < 160
+            ]
 
-        return " ".join(selected)
+            parts = []
+            if definition_part:
+                parts.append(definition_part)
+
+            if items_to_show:
+                list_title = "Key Types / Categories:" if "type" in q_lower or "kind" in q_lower else (
+                    "Key Advantages:" if "advantage" in q_lower or "benefit" in q_lower else "Key Points:"
+                )
+                bullet_lines = [f"• {item if item.startswith('**') or item.startswith('•') else item}" for item in items_to_show]
+                parts.append(f"{list_title}\n" + "\n".join(bullet_lines))
+
+            if parts:
+                return "\n\n".join(parts)
+
+        # Subcase 2.2: Pure List or Procedural
+        if (wants_list or q_type == "list") and len(extracted_list_items) >= 2:
+            return "\n".join(f"• {it}" for it in extracted_list_items[:5])
+
+        if wants_procedural or q_type == "procedural":
+            if extracted_list_items:
+                return "\n".join(f"{i+1}. {it}" for i, it in enumerate(extracted_list_items[:5]))
+            return "\n".join(f"{i+1}. {s}" for i, s in enumerate(selected_sentences[:4]))
+
+        # Subcase 2.3: Comparison
+        if wants_comparison or q_type == "comparison":
+            contrast_sentences = [s for s in selected_sentences if any(w in s.lower() for w in ["while", "whereas", "difference", "unlike", "contrast", "in contrast"])]
+            if contrast_sentences:
+                return " ".join(selected_sentences[:3])
+
+        # Subcase 2.4: Standard Definition / Factual Summary
+        if selected_sentences:
+            return " ".join(selected_sentences[:3])
+
+        return results[0].chunk.text
 
     def _call_openai(self, query: str, context: str) -> Optional[str]:
         """Calls OpenAI Chat Completion API if openai package and key exist."""

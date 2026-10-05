@@ -42,31 +42,71 @@ class DocumentProcessor:
         Validates and safely saves an uploaded Flask FileStorage object.
         Returns the absolute Path of the saved file.
         """
-        filename = secure_filename(file_storage.filename)
-        if not filename:
-            raise DocumentProcessingError("Invalid filename provided.")
+        if not file_storage or not file_storage.filename:
+            raise DocumentProcessingError("Please select a file to upload.")
 
-        extension = Path(filename).suffix.lower()
-        if extension not in ALLOWED_EXTENSIONS:
+        raw_name = Path(file_storage.filename.replace("\\", "/")).name.strip()
+        extension = Path(raw_name).suffix.lower()
+
+        if not extension or extension not in ALLOWED_EXTENSIONS:
+            allowed_list = ", ".join(ext.lstrip(".").upper() for ext in sorted(ALLOWED_EXTENSIONS))
             raise DocumentProcessingError(
-                f"Unsupported file format '{extension}'. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+                f"Unsupported file format. Please upload a {allowed_list} document."
             )
 
+        # Sanitize filename while retaining a readable identifier
+        filename = secure_filename(raw_name)
+        stem = Path(filename).stem
+        if not stem or filename.startswith("."):
+            import time
+            filename = f"document_{int(time.time())}{extension}"
+
         destination = self.upload_dir / filename
+
+        # Pre-check file size before saving if stream supports seeking
+        try:
+            file_storage.seek(0, os.SEEK_END)
+            stream_size = file_storage.tell()
+            file_storage.seek(0)
+            if stream_size == 0:
+                raise DocumentProcessingError("The selected file is empty. Please choose a document containing text.")
+            if stream_size > self.max_file_size_bytes:
+                mb_limit = self.max_file_size_bytes // (1024 * 1024)
+                raise DocumentProcessingError(
+                    f"This file is too large. Please upload a file smaller than {mb_limit}MB."
+                )
+        except (AttributeError, OSError):
+            pass
+
         file_storage.save(destination)
 
-        # Check if file is empty
+        # Post-save safeguard check
         if destination.stat().st_size == 0:
             destination.unlink(missing_ok=True)
-            raise DocumentProcessingError("The uploaded file is empty (0 bytes).")
+            raise DocumentProcessingError("The selected file is empty. Please choose a document containing text.")
 
         if destination.stat().st_size > self.max_file_size_bytes:
             destination.unlink(missing_ok=True)
+            mb_limit = self.max_file_size_bytes // (1024 * 1024)
             raise DocumentProcessingError(
-                f"File exceeds maximum allowed size of {self.max_file_size_bytes // (1024 * 1024)}MB."
+                f"This file is too large. Please upload a file smaller than {mb_limit}MB."
             )
 
         return destination
+
+    def clean_upload_dir(self) -> int:
+        """Removes all uploaded files from data/uploads when resetting."""
+        removed = 0
+        if self.upload_dir.exists():
+            for f in self.upload_dir.glob("*"):
+                if f.is_file():
+                    try:
+                        f.unlink(missing_ok=True)
+                        removed += 1
+                    except Exception:
+                        pass
+        return removed
+
 
     def clean_text(self, text: str) -> str:
         """Sanitizes extracted text by standardizing whitespace and removing control characters."""
@@ -111,12 +151,26 @@ class DocumentProcessor:
         segments = []
         try:
             reader = pypdf.PdfReader(str(file_path))
+
+            # Handle password-protected or encrypted PDFs
+            if reader.is_encrypted:
+                try:
+                    # Attempt empty password decrypt (common for print-restricted PDFs)
+                    reader.decrypt("")
+                except Exception:
+                    raise DocumentProcessingError(
+                        "This PDF is password-protected. Please upload an unlocked PDF file."
+                    )
+
             total_pages = len(reader.pages)
             if total_pages == 0:
-                raise DocumentProcessingError("PDF contains no readable pages.")
+                raise DocumentProcessingError("This PDF appears to be empty with no readable pages.")
 
             for page_idx, page in enumerate(reader.pages):
-                extracted = page.extract_text() or ""
+                try:
+                    extracted = page.extract_text() or ""
+                except Exception:
+                    extracted = ""
                 cleaned = self.clean_text(extracted)
                 if cleaned:
                     segments.append({
@@ -127,14 +181,14 @@ class DocumentProcessor:
 
             if not segments:
                 raise DocumentProcessingError(
-                    "No text could be extracted from the PDF. It may be an image scan or password protected."
+                    "No readable text could be found in this PDF. It might be a scanned image or photo without selectable text."
                 )
             return segments
 
         except Exception as e:
             if isinstance(e, DocumentProcessingError):
                 raise
-            raise DocumentProcessingError(f"Error parsing PDF '{file_path.name}': {str(e)}")
+            raise DocumentProcessingError(f"Could not read PDF '{file_path.name}': {str(e)}")
 
     def _extract_docx(self, file_path: Path) -> List[Dict[str, Any]]:
         """Extracts paragraphs and table contents from a Word DOCX document."""
@@ -172,13 +226,13 @@ class DocumentProcessor:
                     })
 
             if not segments:
-                raise DocumentProcessingError("Word document contains no readable text or tables.")
+                raise DocumentProcessingError("This Word document does not contain readable text or tables.")
             return segments
 
         except Exception as e:
             if isinstance(e, DocumentProcessingError):
                 raise
-            raise DocumentProcessingError(f"Error parsing DOCX '{file_path.name}': {str(e)}")
+            raise DocumentProcessingError(f"Could not read Word document '{file_path.name}': {str(e)}")
 
     def _extract_txt(self, file_path: Path) -> List[Dict[str, Any]]:
         """Extracts text from a plain text file using UTF-8 with Latin-1 fallback."""
@@ -190,7 +244,7 @@ class DocumentProcessor:
 
             cleaned = self.clean_text(content)
             if not cleaned:
-                raise DocumentProcessingError("Text file is empty or contains only whitespace.")
+                raise DocumentProcessingError("This text file is empty or contains only spaces.")
 
             return [{
                 "text": cleaned,
@@ -200,18 +254,30 @@ class DocumentProcessor:
         except Exception as e:
             if isinstance(e, DocumentProcessingError):
                 raise
-            raise DocumentProcessingError(f"Error reading TXT '{file_path.name}': {str(e)}")
+            raise DocumentProcessingError(f"Could not read text file '{file_path.name}': {str(e)}")
 
     def _extract_csv(self, file_path: Path) -> List[Dict[str, Any]]:
         """
         Parses CSV records into structured, searchable textual rows preserving column names.
-        Example row becomes: 'Name: Ravi | Department: CSE | CGPA: 8.7'
+        Supports UTF-8, UTF-8-SIG (Excel CSV), Latin-1, and CP1252 encodings.
         """
         segments = []
+        df = None
+        for encoding in ["utf-8", "utf-8-sig", "latin-1", "cp1252"]:
+            try:
+                df = pd.read_csv(str(file_path), encoding=encoding)
+                break
+            except Exception:
+                continue
+
+        if df is None:
+            raise DocumentProcessingError(
+                f"Could not read spreadsheet '{file_path.name}'. Please make sure it is a valid CSV format."
+            )
+
         try:
-            df = pd.read_csv(str(file_path))
             if df.empty:
-                raise DocumentProcessingError("CSV file contains no data rows.")
+                raise DocumentProcessingError("The CSV spreadsheet contains no data rows.")
 
             # Drop completely empty rows
             df = df.dropna(how="all")
@@ -221,7 +287,6 @@ class DocumentProcessor:
                 for col in df.columns:
                     val = row[col]
                     if pd.notna(val):
-                        # Clean string values
                         val_str = str(val).strip()
                         row_parts.append(f"{col}: {val_str}")
                 if row_parts:
@@ -233,10 +298,11 @@ class DocumentProcessor:
                     })
 
             if not segments:
-                raise DocumentProcessingError("No valid rows found in CSV.")
+                raise DocumentProcessingError("No readable data rows found in this spreadsheet.")
             return segments
 
         except Exception as e:
             if isinstance(e, DocumentProcessingError):
                 raise
-            raise DocumentProcessingError(f"Error parsing CSV '{file_path.name}': {str(e)}")
+            raise DocumentProcessingError(f"Could not process CSV '{file_path.name}': {str(e)}")
+

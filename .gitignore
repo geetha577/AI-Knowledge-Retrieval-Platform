@@ -6,6 +6,7 @@ __pycache__/
 .pytest_cache/
 
 # Virtual environment
+.venv/
 venv/
 env/
 ENV/
@@ -18,6 +19,8 @@ data/uploads/*
 !data/uploads/.gitkeep
 data/vector_store/*
 !data/vector_store/.gitkeep
+data/analytics/*
+!data/analytics/.gitkeep
 
 # Temporary diagnostics, logs, and scratch scripts
 diagnose.py

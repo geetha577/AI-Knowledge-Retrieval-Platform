@@ -16,9 +16,11 @@ class DocumentChunker:
     sentence boundaries and attaching provenance metadata.
     """
 
-    def __init__(self, chunk_size: int = 500, chunk_overlap: int = 100):
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
+    def __init__(self, chunk_size: int = None, chunk_overlap: int = None):
+        # Use configuration defaults if not provided
+        from .config import config
+        self.chunk_size = chunk_size if chunk_size is not None else config.chunk_size
+        self.chunk_overlap = chunk_overlap if chunk_overlap is not None else config.chunk_overlap
 
     def chunk_document(self, filename: str, segments: List[Dict[str, Any]]) -> List[DocumentChunk]:
         """

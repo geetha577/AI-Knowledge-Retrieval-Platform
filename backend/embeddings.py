@@ -12,28 +12,40 @@ class EmbeddingEngine:
     """
     Manages loading the embedding model and computing normalized vector embeddings.
     """
+    _cached_models = {}
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
-        self.model_name = model_name
-        self._model = None
-        self.dimension = 384  # Standard dimension for all-MiniLM-L6-v2
+    def __init__(self, model_name: str = None):
+        # Load default model name from configuration if not supplied
+        from .config import config
+        self.model_name = model_name if model_name is not None else config.embedding_model
+        self.dimension = 384  # Default dimension; may be updated after model load
+
 
     @property
     def model(self):
-        """Lazy loader for the SentenceTransformer model to speed up initialization."""
-        if self._model is None:
+        """Lazy loader with class-level caching to speed up test and component initialization."""
+        if self.model_name not in self._cached_models:
             try:
                 from sentence_transformers import SentenceTransformer
                 print(f"[EMBEDDING] Loading embedding model: {self.model_name}...")
-                self._model = SentenceTransformer(self.model_name)
+                loaded_model = SentenceTransformer(self.model_name)
                 # Verify dimension
-                test_vec = self._model.encode(["test"])
+                test_vec = loaded_model.encode(["test"])
                 self.dimension = int(test_vec.shape[1])
                 print(f"[EMBEDDING] Model loaded successfully (dimension: {self.dimension})")
+                self._cached_models[self.model_name] = loaded_model
             except Exception as e:
                 print(f"[EMBEDDING] Warning: Could not load SentenceTransformer ({str(e)}). Using local fallback.")
-                self._model = "fallback"
-        return self._model
+                self._cached_models[self.model_name] = "fallback"
+
+        active_model = self._cached_models[self.model_name]
+        if active_model != "fallback":
+            dim_fn = getattr(active_model, "get_embedding_dimension", getattr(active_model, "get_sentence_embedding_dimension", None))
+            if callable(dim_fn):
+                self.dimension = dim_fn()
+        return active_model
+
+
 
     def generate_embeddings(self, texts: List[str]) -> np.ndarray:
         """

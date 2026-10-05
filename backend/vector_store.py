@@ -72,12 +72,19 @@ class VectorStore:
         self._create_empty_index()
 
     def _create_empty_index(self):
-        """Creates a fresh empty FAISS index."""
+        """Creates a fresh empty FAISS index based on configuration."""
         self.chunks = []
         if self._faiss_available:
-            # IndexFlatIP calculates inner product. Because embeddings are L2 normalized,
-            # inner product is identical to cosine similarity.
-            self.faiss_index = self.faiss.IndexFlatIP(self.dimension)
+            from .config import config
+            index_type = config.faiss_index_type.lower()
+            if index_type == "ivf_pq" or index_type == "ivf-pq":
+                # IVF‑PQ with 256 centroids and 64‑dim PQ (adjust as needed)
+                self.faiss_index = self.faiss.index_factory(self.dimension, "IVF256,PQ64")
+                # Train the index with dummy data if needed (requires training data later)
+                # For now, we'll leave it untrained; add_documents will handle training when first added.
+            else:
+                # Default flat inner product index
+                self.faiss_index = self.faiss.IndexFlatIP(self.dimension)
         else:
             self.vectors = np.empty((0, self.dimension), dtype=np.float32)
 

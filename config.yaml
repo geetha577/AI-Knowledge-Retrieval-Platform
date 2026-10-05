@@ -1,0 +1,26 @@
+ingestion:
+  chunk_size: 400
+  chunk_overlap: 50
+  supported_file_types:
+    - pdf
+    - docx
+    - txt
+    - csv
+
+retrieval:
+  embedding_model: "all-MiniLM-L6-v2"
+  faiss_index_type: "flat"
+  index_path: "data/vector_store/index.faiss"
+
+analytics:
+  storage: "sqlite"
+  db_path: "data/analytics/analytics.db"
+  export_path: "data/analytics/export.csv"
+
+server:
+  host: "127.0.0.1"
+  port: 5000
+  async_server: "hypercorn"
+
+cache:
+  maxsize: 500
