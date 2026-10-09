@@ -450,14 +450,15 @@ def export_analytics_csv():
 # ----------------------------------------------------------------------
 
 if __name__ == "__main__":
+    host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", 5000))
-    debug = os.getenv("FLASK_DEBUG", "True").lower() == "true"
+    debug = os.getenv("FLASK_DEBUG", "False").lower() == "true"
     print(f"\n=======================================================")
     print(f" AI-Based Knowledge Retrieval Platform (RAG System)")
-    print(f" Server starting on http://127.0.0.1:{port}")
+    print(f" Server starting on http://{host}:{port}")
     print(f" Indexed Documents: {len(vector_store.get_indexed_documents())}")
     print(f" Total Chunks:      {vector_store.total_chunks}")
     print(f" Embedding Model:   {embedding_engine.model_name}")
     print(f" Generator Mode:    {generator.provider}")
     print(f"=======================================================\n")
-    app.run(host="127.0.0.1", port=port, debug=debug)
+    app.run(host=host, port=port, debug=debug)
