@@ -3,7 +3,10 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![Flask](https://img.shields.io/badge/Flask-3.1.3-green.svg)](https://flask.palletsprojects.com/)
 [![FAISS](https://img.shields.io/badge/FAISS-1.15.1-orange.svg)](https://github.com/facebookresearch/faiss)
-[![Tests](https://img.shields.io/badge/Tests-90%20Passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/Tests-96%20Passing-brightgreen.svg)](#testing)
+[![Live Demo](https://img.shields.io/badge/Render-Live%20Demo-brightgreen.svg)](https://ai-knowledge-retrieval-platform.onrender.com)
+
+**🌐 Live Public URL:** [https://ai-knowledge-retrieval-platform.onrender.com](https://ai-knowledge-retrieval-platform.onrender.com)
 
 A full-stack, multi-agent Retrieval-Augmented Generation (RAG) platform that enables intelligent, grounded Q&A over user-uploaded documents. Built across four milestones, it supports PDF, DOCX, TXT, and CSV file formats.
 
