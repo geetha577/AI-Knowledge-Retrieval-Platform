@@ -426,6 +426,7 @@ QueryUnderstandingAgent
 
 | Document | Description |
 |----------|-------------|
+| [Agile Documentation](docs/agile_documentation.md) | Agile framework, Scrum sprints, user stories, DoD, and retrospective |
 | [Technical Documentation](docs/technical_documentation.md) | Full system architecture, API reference, data flow diagrams |
 | [M4 Implementation Report](docs/m4_implementation_report.md) | Milestone 4 feature implementation details |
 | [Testing Report](docs/testing_report.md) | Test coverage, results, and analysis |
@@ -438,7 +439,9 @@ QueryUnderstandingAgent
 
 ## License
 
-This project was developed as part of an academic milestone project.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2025 Vidzai Digital.
 
 ---
 
